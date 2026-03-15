@@ -17,6 +17,9 @@ from typing import Any, AsyncIterator, Iterable
 
 from .prompts import AGENT_INSTRUCTION, GLOBAL_INSTRUCTION
 
+# Backward-compatible alias used by existing tests.
+SYSTEM_INSTRUCTION = AGENT_INSTRUCTION
+
 _log = logging.getLogger(__name__)
 
 # Retry settings for transient Gemini / Vertex AI failures (429, 503, etc.)
@@ -121,8 +124,8 @@ class CADAnalysisAgent:
         *,
         user_id: str = "default-user",
         session_id: str | None = None,
-    ) -> str:
-        """Run the agent asynchronously and return its textual analysis.
+    ) -> dict[str, Any]:
+        """Run the agent asynchronously and return analysis + tool-call metadata.
 
         Args:
             diagram_id: UUID of the pre-processed diagram to analyse.
@@ -132,8 +135,11 @@ class CADAnalysisAgent:
                 ``None`` so each call starts a fresh conversation by default.
 
         Returns:
-            Final text response produced by the agent.
+            Dict with ``text`` (final agent response) and ``tool_calls``
+            (list of tool invocation records with name, args, duration, etc.).
         """
+        from .callbacks import tracker
+
         sid = session_id or f"{diagram_id}-{uuid.uuid4().hex[:8]}"
         full_query = f"Diagram ID: {diagram_id}\n\n{query}"
 
@@ -147,13 +153,21 @@ class CADAnalysisAgent:
 
         content = self._types_mod.Content(role="user", parts=parts)
 
-        return await _run_with_retry(
+        # Reset the tracker so we only capture tool calls from this run.
+        tracker.reset()
+
+        text = await _run_with_retry(
             runner_cls=self._runner_cls,
             agent=self._agent,
             user_id=user_id,
             session_id=sid,
             content=content,
         )
+
+        return {
+            "text": text,
+            "tool_calls": tracker.get_records(),
+        }
 
     # ------------------------------------------------------------------
     # Sync convenience wrapper
@@ -166,7 +180,7 @@ class CADAnalysisAgent:
         *,
         user_id: str = "default-user",
         session_id: str | None = None,
-    ) -> str:
+    ) -> dict[str, Any]:
         """Synchronous wrapper around :meth:`analyze_async`.
 
         Suitable for scripts and CLI use.  Must not be called from inside
@@ -179,7 +193,8 @@ class CADAnalysisAgent:
             session_id: Explicit session ID; auto-generated when ``None``.
 
         Returns:
-            Final text response produced by the agent.
+            Dict with ``text`` (final agent response) and ``tool_calls``
+            (list of tool invocation records).
         """
         return asyncio.run(
             self.analyze_async(

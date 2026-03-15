@@ -83,11 +83,15 @@ class AnalyzeResponse(BaseModel):
         diagram_id: Echoed from the request.
         query: Echoed from the request.
         response: Final text produced by the agent.
+        tool_calls: List of tool invocations the agent made during analysis,
+            each containing ``tool_name``, ``args``, ``duration_ms``,
+            ``success``, ``result_summary``, and optional ``error``.
     """
 
     diagram_id: str
     query: str
     response: str
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class IngestResponse(BaseModel):
@@ -201,7 +205,7 @@ def create_app() -> Any:
                 detail="Agent not configured. Check Vertex AI credentials.",
             )
         try:
-            text = await _orchestrator._agent.analyze_async(
+            result = await _orchestrator._agent.analyze_async(
                 request.diagram_id,
                 request.query,
                 user_id=request.user_id,
@@ -212,7 +216,8 @@ def create_app() -> Any:
         return AnalyzeResponse(
             diagram_id=request.diagram_id,
             query=request.query,
-            response=text,
+            response=result["text"],
+            tool_calls=result.get("tool_calls"),
         )
 
     # ------------------------------------------------------------------
@@ -241,7 +246,7 @@ def create_app() -> Any:
         return HTMLResponse(content=result["html"])
 
     # Mount static files last so API routes take priority.
-    _static_dir = Path(__file__).parent.parent / "static"
+    _static_dir = Path(__file__).parent.parent.parent / "frontend"
     if _static_dir.is_dir():
         _app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="static")
 
