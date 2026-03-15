@@ -10,11 +10,19 @@ ADK and google-genai are imported lazily so the module remains importable
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from io import BytesIO
 from typing import Any, AsyncIterator, Iterable
 
 from .prompts import AGENT_INSTRUCTION, GLOBAL_INSTRUCTION
+
+_log = logging.getLogger(__name__)
+
+# Retry settings for transient Gemini / Vertex AI failures (429, 503, etc.)
+_MAX_RETRIES = 3
+_INITIAL_BACKOFF_S = 2.0
+_MAX_BACKOFF_S = 30.0
 
 # ---------------------------------------------------------------------------
 # Lazy ADK / genai imports
@@ -36,7 +44,12 @@ except ImportError:  # pragma: no cover
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+import os as _os
+
+DEFAULT_MODEL = _os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# TOOL_MODEL is reserved for vision-heavy tool calls (e.g. inspect_component
+# crop verification). Falls back to the agent model when not set.
+TOOL_MODEL = _os.environ.get("TOOL_MODEL", DEFAULT_MODEL)
 
 # ---------------------------------------------------------------------------
 # Agent class
@@ -133,21 +146,14 @@ class CADAnalysisAgent:
             parts.append(image_part)
 
         content = self._types_mod.Content(role="user", parts=parts)
-        runner = self._runner_cls(agent=self._agent)
-        runner.auto_create_session = True
 
-        last_text = ""
-        async for event in runner.run_async(
+        return await _run_with_retry(
+            runner_cls=self._runner_cls,
+            agent=self._agent,
             user_id=user_id,
             session_id=sid,
-            new_message=content,
-        ):
-            if _is_final_response(event):
-                text = _extract_text(event)
-                if text:
-                    last_text = text
-
-        return last_text
+            content=content,
+        )
 
     # ------------------------------------------------------------------
     # Sync convenience wrapper
@@ -256,6 +262,78 @@ def _load_image_part(diagram_id: str, types_mod: Any) -> Any | None:
         )
     except Exception:  # noqa: BLE001
         return None
+
+
+# ---------------------------------------------------------------------------
+# Retry logic with exponential backoff
+# ---------------------------------------------------------------------------
+
+
+async def _run_with_retry(
+    runner_cls: Any,
+    agent: Any,
+    user_id: str,
+    session_id: str,
+    content: Any,
+) -> str:
+    """Run the ADK agent with exponential backoff on transient errors.
+
+    Retries on common transient errors (HTTP 429, 503, connection resets)
+    with exponential backoff: 2 s → 4 s → 8 s … capped at 30 s.
+
+    Args:
+        runner_cls: The runner class to instantiate (InMemoryRunner).
+        agent: The configured LlmAgent.
+        user_id: User identifier for the session.
+        session_id: Session identifier.
+        content: The Content object to send.
+
+    Returns:
+        Final text response from the agent.
+
+    Raises:
+        Exception: Re-raised after exhausting all retries.
+    """
+    backoff = _INITIAL_BACKOFF_S
+    last_exc: Exception | None = None
+
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            runner = runner_cls(agent=agent)
+            runner.auto_create_session = True
+            # Use a unique session on each retry to avoid stale state.
+            retry_sid = session_id if attempt == 0 else f"{session_id}-r{attempt}"
+
+            last_text = ""
+            async for event in runner.run_async(
+                user_id=user_id,
+                session_id=retry_sid,
+                new_message=content,
+            ):
+                if _is_final_response(event):
+                    text = _extract_text(event)
+                    if text:
+                        last_text = text
+            return last_text
+
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            err_str = str(exc).lower()
+            is_transient = any(
+                kw in err_str
+                for kw in ("429", "503", "rate", "quota", "resource_exhausted", "unavailable")
+            )
+            if not is_transient or attempt >= _MAX_RETRIES:
+                raise
+            _log.warning(
+                "Transient error (attempt %d/%d), retrying in %.1fs: %s",
+                attempt + 1, _MAX_RETRIES, backoff, exc,
+            )
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, _MAX_BACKOFF_S)
+
+    # Should not reach here but satisfies type checker.
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------

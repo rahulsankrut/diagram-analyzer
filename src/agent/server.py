@@ -215,6 +215,31 @@ def create_app() -> Any:
             response=text,
         )
 
+    # ------------------------------------------------------------------
+    # GET /visualization/{diagram_id}
+    # ------------------------------------------------------------------
+
+    @_app.get("/visualization/{diagram_id}")
+    async def visualization(diagram_id: str) -> Any:
+        """Return a self-contained interactive HTML visualization.
+
+        The HTML includes the diagram image with SVG bounding-box overlays,
+        hover/click highlighting, and a searchable sidebar of all elements.
+
+        Args:
+            diagram_id: UUID of a previously ingested diagram.
+
+        Returns:
+            HTML response.
+        """
+        from fastapi.responses import HTMLResponse
+        from src.tools.export_visualization import export_visualization
+
+        result = export_visualization(diagram_id)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return HTMLResponse(content=result["html"])
+
     # Mount static files last so API routes take priority.
     _static_dir = Path(__file__).parent.parent / "static"
     if _static_dir.is_dir():
