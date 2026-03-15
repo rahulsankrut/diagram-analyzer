@@ -14,6 +14,8 @@ from src.tools._store import get_store
 
 # Pyramid levels to search for tile annotation, most-detailed first.
 _SEARCH_LEVELS = [2, 1, 0]
+# Cap results to avoid context overflow on broad queries against dense diagrams.
+_MAX_MATCHES = 100
 
 
 def search_text(diagram_id: str, query: str) -> dict[str, Any]:
@@ -44,17 +46,22 @@ def search_text(diagram_id: str, query: str) -> dict[str, Any]:
         return {"error": f"Diagram not found: {diagram_id}"}
 
     needle = query.strip().lower()
-    matches = [lbl for lbl in metadata.text_labels if needle in lbl.text.lower()]
+    all_matches = [lbl for lbl in metadata.text_labels if needle in lbl.text.lower()]
+    matches = all_matches[:_MAX_MATCHES]
 
     pyramid = store.get_pyramid(diagram_id)
     match_dicts = [_label_to_dict(lbl, pyramid) for lbl in matches]
 
-    return {
+    result: dict[str, Any] = {
         "diagram_id": diagram_id,
         "query": query,
         "matches": match_dicts,
-        "match_count": len(match_dicts),
+        "match_count": len(all_matches),
     }
+    if len(all_matches) > _MAX_MATCHES:
+        result["matches_truncated"] = True
+        result["matches_shown"] = _MAX_MATCHES
+    return result
 
 
 def _label_to_dict(label: TextLabel, pyramid: TilePyramid | None) -> dict[str, Any]:

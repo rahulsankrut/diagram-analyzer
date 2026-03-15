@@ -20,6 +20,7 @@ _SEARCH_LEVELS = [2, 1, 0]
 # Limits to keep context size under control
 _MAX_TILE_PX = 512
 _MAX_TEXT_LABELS = 50
+_MAX_TILES = 3
 
 
 def inspect_zone(
@@ -115,7 +116,7 @@ def _build_tile_list(
             t for t in pyramid.tiles_at_level(level) if t.bbox.overlaps(query_bbox)
         ]
         if matching:
-            return [_tile_to_dict(t, store) for t in matching]
+            return [_tile_to_dict(t, store) for t in matching[:_MAX_TILES]]
     return []
 
 
