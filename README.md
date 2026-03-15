@@ -12,3 +12,4 @@ python -m src.agent.server
 ```
 
 See `CLAUDE.md` for full documentation.
+# diagram-analyzer
