@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Literal
 from PIL import Image
 
 from src.models import DiagramMetadata, TextLabel
+from src.models.component import Component
 from src.preprocessing.cv_pipeline import CVPipeline
 from src.preprocessing.ocr import DocumentAIOCRExtractor
 from src.preprocessing.title_block import TitleBlockExtractor
@@ -100,9 +101,8 @@ class PreprocessingPipeline:
 
         Returns:
             :class:`~src.models.DiagramMetadata` populated with
-            ``text_labels`` (from OCR) and ``title_block`` (from pattern
-            matching).  ``components`` and ``traces`` are empty lists pending
-            the semantic-interpretation stage (Phase 3).
+            ``text_labels`` (from OCR), ``components`` (from CV symbol
+            detection), and ``title_block`` (from pattern matching).
 
         Raises:
             FileNotFoundError: If *image* is a :class:`~pathlib.Path` that
@@ -130,11 +130,21 @@ class PreprocessingPipeline:
 
         title_block = self._title_block.extract(pil_image, labels)
 
+        components = [
+            Component(
+                component_id=sym.symbol_id,
+                component_type=sym.symbol_type,
+                bbox=sym.bbox,
+                confidence=sym.confidence,
+            )
+            for sym in cv_result.symbols
+        ]
+
         logger.info(
             "Preprocessing complete — %d text labels, %d symbols, %d lines "
             "(source: %s)",
             len(labels),
-            len(cv_result.symbols),
+            len(components),
             len(cv_result.detected_lines),
             source_filename,
         )
@@ -145,5 +155,6 @@ class PreprocessingPipeline:
             width_px=width,
             height_px=height,
             text_labels=labels,
+            components=components,
             title_block=title_block,
         )

@@ -12,11 +12,14 @@ from PIL import Image
 
 from src.models.ocr import BoundingBox
 from src.models.tiling import Tile, TilePyramid
-from src.tools._image_utils import image_to_base64
+from src.tools._image_utils import downscale_to_fit, image_to_base64
 from src.tools._store import DiagramStore, get_store
 
 # Tile levels to try, most-detailed first.
 _SEARCH_LEVELS = [2, 1, 0]
+# Limits to keep context size under control
+_MAX_TILE_PX = 512
+_MAX_TEXT_LABELS = 50
 
 
 def inspect_zone(
@@ -43,7 +46,9 @@ def inspect_zone(
         Dict with keys ``diagram_id``, ``query_region``, ``tiles`` (list of
         tile dicts each containing ``tile_id``, ``level``, ``row``, ``col``,
         ``bbox``, ``image_base64``), ``components`` (list), ``text_labels``
-        (list), ``component_count``, ``text_label_count``.
+        (list, capped at 50), ``component_count``, ``text_label_count``.
+        Includes ``text_labels_truncated`` and ``text_labels_shown`` when the
+        zone contains more than 50 labels.
         Contains ``error`` key instead when validation fails or diagram is
         not found.
     """
@@ -62,7 +67,9 @@ def inspect_zone(
     query_bbox = BoundingBox(x_min=x1 / 100, y_min=y1 / 100, x_max=x2 / 100, y_max=y2 / 100)
 
     components = [c.to_dict() for c in metadata.components_in_bbox(query_bbox)]
-    text_labels = [lbl.to_dict() for lbl in metadata.text_labels_in_bbox(query_bbox)]
+    all_labels = metadata.text_labels_in_bbox(query_bbox)
+    text_labels = [lbl.to_dict() for lbl in all_labels[:_MAX_TEXT_LABELS]]
+    truncated_labels = len(all_labels) > _MAX_TEXT_LABELS
 
     pyramid = store.get_pyramid(diagram_id)
     tiles_data = _build_tile_list(query_bbox, pyramid, store)
@@ -70,15 +77,19 @@ def inspect_zone(
     if not tiles_data:
         tiles_data = _fallback_crop(diagram_id, query_bbox, store)
 
-    return {
+    result: dict[str, Any] = {
         "diagram_id": diagram_id,
         "query_region": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
         "tiles": tiles_data,
         "components": components,
         "text_labels": text_labels,
         "component_count": len(components),
-        "text_label_count": len(text_labels),
+        "text_label_count": len(all_labels),
     }
+    if truncated_labels:
+        result["text_labels_truncated"] = True
+        result["text_labels_shown"] = _MAX_TEXT_LABELS
+    return result
 
 
 def _validate_coords(x1: float, y1: float, x2: float, y2: float) -> str | None:
@@ -111,13 +122,15 @@ def _build_tile_list(
 def _tile_to_dict(tile: Tile, store: DiagramStore) -> dict[str, Any]:
     """Serialize a tile to a dict, including its base64-encoded image."""
     img: Image.Image | None = store.load_tile_image(tile)
+    if img is not None:
+        img = downscale_to_fit(img, _MAX_TILE_PX)
     return {
         "tile_id": tile.tile_id,
         "level": tile.level,
         "row": tile.row,
         "col": tile.col,
         "bbox": tile.bbox.to_dict(),
-        "image_base64": image_to_base64(img) if img is not None else None,
+        "image_base64": image_to_base64(img, fmt="JPEG") if img is not None else None,
     }
 
 
@@ -133,6 +146,7 @@ def _fallback_crop(
     if original is None:
         return []
     crop, actual_bbox = crop_with_padding(original, query_bbox, padding=0.0)
+    crop = downscale_to_fit(crop, _MAX_TILE_PX)
     return [
         {
             "tile_id": f"{diagram_id}_zone_crop",
@@ -140,6 +154,6 @@ def _fallback_crop(
             "row": 0,
             "col": 0,
             "bbox": actual_bbox.to_dict(),
-            "image_base64": image_to_base64(crop),
+            "image_base64": image_to_base64(crop, fmt="JPEG"),
         }
     ]

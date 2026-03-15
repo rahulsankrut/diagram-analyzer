@@ -33,13 +33,26 @@ def trace_net(diagram_id: str, component_id: str, pin: str) -> dict[str, Any]:
         ``connected_component_id``, ``connected_component_type``,
         ``connected_pin``, ``direction`` (``"from"`` or ``"to"``), ``path``),
         ``connection_count``.
-        Returns a graceful ``trace_data_unavailable`` flag when no traces exist.
+        Returns a graceful ``trace_data_unavailable`` flag when no components
+        or traces exist.
         Contains ``error`` key when the diagram or component is not found.
     """
     store = get_store()
     metadata = store.get_metadata(diagram_id)
     if metadata is None:
         return {"error": f"Diagram not found: {diagram_id}"}
+
+    if not metadata.components:
+        return {
+            "diagram_id": diagram_id,
+            "component_id": component_id,
+            "pin": pin,
+            "trace_data_unavailable": True,
+            "message": "No components have been extracted for this diagram. "
+                       "Use inspect_zone() to visually identify connections.",
+            "connections": [],
+            "connection_count": 0,
+        }
 
     component = metadata.get_component(component_id)
     if component is None:
