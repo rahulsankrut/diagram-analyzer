@@ -43,6 +43,10 @@ htmlcov/
 # macOS
 .DS_Store
 
+# Claude Code
+.claude/
+CLAUDE.md
+
 # Generated fixtures / large test images
 tests/fixtures/*.png
 tests/fixtures/*.tiff
