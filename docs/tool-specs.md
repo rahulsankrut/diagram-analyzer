@@ -374,13 +374,23 @@ agent tool — called by the server's `GET /visualization/{diagram_id}` endpoint
 
 ### Features
 
-- Diagram image with SVG bounding-box overlays
-- Red overlays for components, blue for text labels
-- Hover-to-highlight and click-to-pin interaction
-- Searchable sidebar listing all detected elements
+- Two-panel layout: zoomable/pannable diagram viewer (left) + tabbed sidebar (right)
+- SVG bounding-box overlays on the diagram — red for components, blue for text labels
+- Hover-to-highlight and click-to-inspect interaction (bidirectional)
+- **Components tab:** Searchable element list with confidence colour-coding
+  (green ≥ 80%, yellow 50–79%, red < 50%) and type filter chips
+- **Graph tab:** Mermaid.js diagram with graceful fallback:
+  - When trace data exists → directed `graph LR` connectivity diagram with pin labels
+  - When no traces but components detected → component topology graph, nodes
+    grouped by type in subgraphs; an info banner notes that edges are not shown
+    because no electrical trace data is available (no connections fabricated)
+  - When neither → empty state message
+- **Details tab:** Component detail panel on click (type, value, confidence,
+  bbox, pin count)
 - Dark theme matching the main web UI
-- Image downscaled to max 1400px for browser performance
+- Image downscaled to max 1 400 px for browser performance
 - Text labels capped at 200 in the visualization
+- Only external dependency: Mermaid.js loaded from CDN (self-contained otherwise)
 
 ---
 

@@ -824,13 +824,36 @@ a self-contained HTML file with:
   - Hover highlights, click pins the overlay detail
 - **Right panel (tabbed):**
   - **Components tab:** Searchable list, type filter chips, click-to-highlight
-  - **Graph tab:** Mermaid.js connectivity diagram from trace data (CDN)
-  - **Details tab:** Component detail on click (type, value, confidence, bbox, nearby)
+  - **Graph tab:** Mermaid.js diagram with a three-way fallback:
+    1. **Connectivity mode** — when `Trace` objects exist: directed `graph LR`
+       with pin labels between connected components
+    2. **Topology mode** — when no traces but components were detected: nodes
+       grouped by `component_type` in Mermaid subgraphs; no edges drawn; an
+       info banner reads *"Component topology — no electrical trace data
+       available"* so it is always clear that connections are not shown
+    3. **Empty state** — when neither traces nor components exist
+  - **Details tab:** Component detail on click (type, value, confidence, bbox,
+    pin count)
 - Zoom/pan on the diagram via CSS transform + mouse handlers
 - Max 200 text labels (UI performance cap)
 
 The output is a **single self-contained HTML file** — no server needed to view
 it. Safe to email or put in a shared drive.
+
+#### `_build_mermaid` — graph builder
+
+```python
+def _build_mermaid(
+    traces: list[dict[str, str]],
+    components: list[Any] | None = None,
+) -> tuple[str, str]:          # (mermaid_definition, mode)
+```
+
+Returns a `(definition, mode)` tuple where `mode` is `"connectivity"`,
+`"topology"`, or `""` (no graph). The calling code passes both to
+`_render_graph_tab()` which wraps the Mermaid `<pre>` block and, in topology
+mode, prepends the info banner. This keeps the rendering logic out of the
+main HTML f-string.
 
 ---
 

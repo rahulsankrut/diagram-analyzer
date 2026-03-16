@@ -463,8 +463,12 @@ The visualization is a **self-contained HTML file** (no server needed after down
 - **Left panel:** Zoomable/pannable diagram image (CSS transform + mouse wheel) with SVG bounding-box overlays (red=components, blue=text labels). Click an overlay → highlights corresponding sidebar entry.
 - **Right panel (3 tabs):**
   - **Components:** Searchable list with confidence colour-coding (green ≥80%, yellow 50–79%, red <50%). Type filter chips toggle visibility by component type. Click → highlights SVG overlay.
-  - **Graph:** Mermaid.js `graph LR` connectivity diagram auto-generated from `Trace` objects.
-  - **Details:** Component detail panel shown on click: type, value, confidence, bbox, nearby components.
+  - **Graph:** Mermaid.js diagram with a three-way fallback driven by `_build_mermaid(traces, components) → (definition, mode)`:
+    - `mode = "connectivity"` — traces exist → directed `graph LR` with pin labels
+    - `mode = "topology"` — no traces but components detected → component nodes
+      grouped by type in Mermaid subgraphs; no edges; info banner shown
+    - `mode = ""` — no data → empty-state message
+  - **Details:** Component detail panel shown on click: type, value, confidence, bbox, pin count.
 
 ---
 
