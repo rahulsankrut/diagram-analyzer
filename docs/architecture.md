@@ -578,7 +578,7 @@ This leaves 530K–770K tokens of headroom. Controls that keep usage within budg
 | Max 100 `search_text` matches | `matches[:100]` + `truncated` flag | ~50K per call |
 | `get_overview` returns no image | Structured JSON only | ~400K saved |
 
-If token issues arise, switch to `TOOL_MODEL=gemini-2.5-pro` which has a larger effective context for complex visual reasoning.
+If token issues arise, switch to `TOOL_MODEL=gemini-3.1-pro-preview` which has a larger effective context for complex visual reasoning.
 
 ---
 

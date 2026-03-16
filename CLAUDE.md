@@ -11,7 +11,7 @@ perception.
 
 ## Tech Stack
 - Language: Python 3.11+
-- LLM: Google Gemini 2.5 Flash via Vertex AI (primary), configurable via `GEMINI_MODEL` env var
+- LLM: Google Gemini 3.1 Pro (customtools variant) via Vertex AI (primary), configurable via `GEMINI_MODEL` env var
 - Agent Framework: Google Agent Development Kit (ADK) — `LlmAgent`, `InMemoryRunner`
 - Pre-processing: Google Cloud Document AI (OCR), OpenCV (CV pipeline)
 - Image manipulation: Pillow, OpenCV
@@ -127,8 +127,8 @@ GCS_BUCKET=...                  # GCS bucket for diagrams
 FIRESTORE_DB=...                # Firestore database name
 DOCUMENT_AI_PROCESSOR_ID=...    # Document AI OCR processor ID
 DOCUMENT_AI_LOCATION=us         # Document AI location
-VERTEX_AI_LOCATION=us-central1  # Vertex AI location
-GEMINI_MODEL=gemini-2.5-flash   # Agent model (default)
-TOOL_MODEL=gemini-2.5-pro       # Optional: vision-heavy tool model
+VERTEX_AI_LOCATION=global        # gemini-3.1 requires global endpoint
+GEMINI_MODEL=gemini-3.1-pro-preview-customtools  # Agent model (tuned for tool calling)
+TOOL_MODEL=gemini-3.1-pro-preview                # Optional: vision-heavy tool model
 GOOGLE_GENAI_USE_VERTEXAI=1     # Route through Vertex AI (not API key)
 ```

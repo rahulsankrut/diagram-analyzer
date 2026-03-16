@@ -71,9 +71,9 @@ python3 -m src.agent.server
 GCP_PROJECT_ID=your-project-id
 DOCUMENT_AI_PROCESSOR_ID=your-ocr-processor-id
 DOCUMENT_AI_LOCATION=us
-VERTEX_AI_LOCATION=us-central1
-GEMINI_MODEL=gemini-2.5-flash        # default model
-# TOOL_MODEL=gemini-2.5-pro          # optional: stronger model for vision tools
+VERTEX_AI_LOCATION=global                              # gemini-3.1 requires global endpoint
+GEMINI_MODEL=gemini-3.1-pro-preview-customtools        # tuned for custom tool calling
+# TOOL_MODEL=gemini-3.1-pro-preview                   # optional: vision-heavy tools
 GOOGLE_GENAI_USE_VERTEXAI=1
 ```
 

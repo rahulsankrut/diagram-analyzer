@@ -892,7 +892,7 @@ cross the LLM/Python boundary as JSON.
 
 ```python
 class CADAnalysisAgent:
-    def __init__(self, model="gemini-2.5-flash", ...):
+    def __init__(self, model="gemini-3.1-pro-preview-customtools", ...):
         self._tools = [
             get_overview, inspect_zone, inspect_component,
             search_text, trace_net
@@ -1329,15 +1329,15 @@ method exists as a placeholder for this.
 GCP_PROJECT_ID=my-project-id
 GCS_BUCKET=my-bucket-name
 FIRESTORE_DB=my-database
-VERTEX_AI_LOCATION=us-central1
+VERTEX_AI_LOCATION=global          # gemini-3.1 requires global endpoint, not regional
 
 # Document AI
 DOCUMENT_AI_PROCESSOR_ID=abc123...
 DOCUMENT_AI_LOCATION=us
 
 # Model selection (optional overrides)
-GEMINI_MODEL=gemini-2.5-flash     # agent model
-TOOL_MODEL=gemini-2.5-pro         # vision-heavy tools (optional)
+GEMINI_MODEL=gemini-3.1-pro-preview-customtools  # agent model (tuned for tool calling)
+TOOL_MODEL=gemini-3.1-pro-preview                # vision-heavy tools (optional)
 
 # ADC routing — tells google-genai to use Vertex AI, not API key
 GOOGLE_GENAI_USE_VERTEXAI=1
@@ -1645,7 +1645,7 @@ models validate, and tests pass without the full dependency set.
 class CADAnalysisAgent:
     def __init__(
         self,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3.1-pro-preview-customtools",
         _agent_cls=None,    # override in tests
         _runner_cls=None,   # override in tests
         _types_mod=None,    # override in tests
