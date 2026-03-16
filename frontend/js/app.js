@@ -9,33 +9,36 @@ const API = ''; // change to e.g. "http://localhost:8080" if opening as file://
 // ==========================================================================
 
 // Input card
-const dropZone    = document.getElementById('drop-zone');
-const fileInput   = document.getElementById('file-input');
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
 const previewWrap = document.getElementById('preview-wrap');
-const previewImg  = document.getElementById('preview-img');
+const previewImg = document.getElementById('preview-img');
 const previewName = document.getElementById('preview-name');
-const clearBtn    = document.getElementById('clear-btn');
-const queryTA     = document.getElementById('query');
-const analyzeBtn  = document.getElementById('analyze-btn');
-const statusEl    = document.getElementById('status');
-const statusText  = document.getElementById('status-text');
+const clearBtn = document.getElementById('clear-btn');
+const queryTA = document.getElementById('query');
+const analyzeBtn = document.getElementById('analyze-btn');
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('status-text');
 
 // Results card
 const resultsCard = document.getElementById('results-card');
-const resultMeta  = document.getElementById('result-meta');
+const resultMeta = document.getElementById('result-meta');
 const toolCallsEl = document.getElementById('tool-calls');
-const resultText  = document.getElementById('result-text');
+const resultText = document.getElementById('result-text');
+
+// Toast container
+const toastContainer = document.getElementById('toast-container');
 
 // Pipeline badges
-const pipelineLiveBadge     = document.getElementById('pipeline-live-badge');
+const pipelineLiveBadge = document.getElementById('pipeline-live-badge');
 const pipelineCompleteBadge = document.getElementById('pipeline-complete-badge');
-const resultsDivider        = document.getElementById('results-divider');
+const resultsDivider = document.getElementById('results-divider');
 
 // Pipeline phase elements
-const phaseUpload     = document.getElementById('phase-upload');
+const phaseUpload = document.getElementById('phase-upload');
 const phasePreprocess = document.getElementById('phase-preprocess');
-const phaseAnalyze    = document.getElementById('phase-analyze');
-const phaseResults    = document.getElementById('phase-results');
+const phaseAnalyze = document.getElementById('phase-analyze');
+const phaseResults = document.getElementById('phase-results');
 
 // Connector elements
 const conn12 = document.getElementById('conn-12');
@@ -46,9 +49,9 @@ const conn34 = document.getElementById('conn-34');
 // State
 // ==========================================================================
 
-let selectedFile     = null;
+let selectedFile = null;
 let currentDiagramId = null;
-let _subMsgTimers    = {};
+let _subMsgTimers = {};
 
 // ==========================================================================
 // Initialization
@@ -58,6 +61,7 @@ function init() {
   setupDragAndDrop();
   setupFileInput();
   setupActions();
+  setupImagePanZoom();
 }
 
 function setupDragAndDrop() {
@@ -138,6 +142,95 @@ function clearFile() {
   dropZone.classList.remove('hidden');
   analyzeBtn.disabled = true;
   resultsCard.classList.add('hidden');
+
+  // reset zoom logic
+  scale = 1;
+  panX = 0;
+  panY = 0;
+  updateTransform();
+}
+
+// ==========================================================================
+// Image Pan & Zoom
+// ==========================================================================
+
+let scale = 1;
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let startX = 0;
+let startY = 0;
+const previewViewport = document.getElementById('preview-viewport');
+
+function setupImagePanZoom() {
+  if (!previewViewport) return;
+
+  // Zoom via scroll wheel
+  previewViewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const zoomFactor = -0.002;
+    const scrollDelta = e.deltaY;
+
+    // Get cursor position relative to viewport
+    const rect = previewViewport.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+
+    const newScale = Math.max(0.2, Math.min(scale + (scrollDelta * zoomFactor), 15));
+
+    if (newScale !== scale) {
+      // Adjust pan to zoom into cursor
+      panX = cursorX - (cursorX - panX) * (newScale / scale);
+      panY = cursorY - (cursorY - panY) * (newScale / scale);
+      scale = newScale;
+      updateTransform();
+    }
+  });
+
+  // Pan via click and drag
+  previewViewport.addEventListener('mousedown', (e) => {
+    isPanning = true;
+    startX = e.clientX - panX;
+    startY = e.clientY - panY;
+    previewViewport.style.cursor = 'grabbing';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isPanning) return;
+    panX = e.clientX - startX;
+    panY = e.clientY - startY;
+    updateTransform();
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isPanning) {
+      isPanning = false;
+      previewViewport.style.cursor = 'grab';
+    }
+  });
+
+  // Double click to reset
+  previewViewport.addEventListener('dblclick', () => {
+    // fit-to-width strategy fallback 
+    scale = 1;
+    panX = 0;
+    panY = 0;
+
+    const imgRatio = previewImg.naturalWidth / previewImg.naturalHeight;
+    const viewRatio = previewViewport.clientWidth / previewViewport.clientHeight;
+    if (imgRatio < viewRatio) {
+      scale = previewViewport.clientHeight / previewImg.naturalHeight;
+      panX = (previewViewport.clientWidth - (previewImg.naturalWidth * scale)) / 2;
+    } else {
+      scale = previewViewport.clientWidth / previewImg.naturalWidth;
+      panY = (previewViewport.clientHeight - (previewImg.naturalHeight * scale)) / 2;
+    }
+    updateTransform();
+  });
+}
+
+function updateTransform() {
+  previewImg.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
 }
 
 // ==========================================================================
@@ -407,10 +500,10 @@ function resetResults() {
   });
 
   // Reset sub-texts to defaults
-  setSubText('upload',     'File prepared');
+  setSubText('upload', 'File prepared');
   setSubText('preprocess', 'OCR · CV · Tiling');
-  setSubText('analyze',    'ADK · Gemini · 5 Tools');
-  setSubText('results',    'Ready to display');
+  setSubText('analyze', 'ADK · Gemini · 5 Tools');
+  setSubText('results', 'Ready to display');
 
   // Reset connector fills
   [conn12, conn23, conn34].forEach(c => c.classList.remove('filled'));
@@ -513,11 +606,11 @@ function displayError(title, detail) {
 // ==========================================================================
 
 const TOOL_COLORS = {
-  get_overview:      { bg: '#1e3a5f', border: '#457b9d', text: '#a8dadc' },
-  inspect_zone:      { bg: '#2d1b4e', border: '#6c5ce7', text: '#a29bfe' },
+  get_overview: { bg: '#1e3a5f', border: '#457b9d', text: '#a8dadc' },
+  inspect_zone: { bg: '#2d1b4e', border: '#6c5ce7', text: '#a29bfe' },
   inspect_component: { bg: '#4a2c17', border: '#e17055', text: '#fab1a0' },
-  search_text:       { bg: '#0d3b3b', border: '#00cec9', text: '#81ecec' },
-  trace_net:         { bg: '#3b1d3b', border: '#e84393', text: '#fd79a8' },
+  search_text: { bg: '#0d3b3b', border: '#00cec9', text: '#81ecec' },
+  trace_net: { bg: '#3b1d3b', border: '#e84393', text: '#fd79a8' },
 };
 
 const TOOL_ICONS = {
@@ -538,7 +631,7 @@ const TOOL_ICONS = {
  * @param {Array} toolCalls - List of tool call records from the API
  */
 function renderToolCalls(toolCalls) {
-  const totalMs  = toolCalls.reduce((s, tc) => s + (tc.duration_ms || 0), 0);
+  const totalMs = toolCalls.reduce((s, tc) => s + (tc.duration_ms || 0), 0);
   const totalSec = (totalMs / 1000).toFixed(1);
 
   let html = `
@@ -561,21 +654,21 @@ function renderToolCalls(toolCalls) {
   `;
 
   toolCalls.forEach((tc, i) => {
-    const colors    = TOOL_COLORS[tc.tool_name] || { bg: '#1c1e29', border: '#32364a', text: '#a4b0be' };
-    const icon      = TOOL_ICONS[tc.tool_name] || '';
-    const duration  = tc.duration_ms ? (tc.duration_ms / 1000).toFixed(2) + 's' : '—';
+    const colors = TOOL_COLORS[tc.tool_name] || { bg: '#1c1e29', border: '#32364a', text: '#a4b0be' };
+    const icon = TOOL_ICONS[tc.tool_name] || '';
+    const duration = tc.duration_ms ? (tc.duration_ms / 1000).toFixed(2) + 's' : '—';
     const successIco = tc.success
       ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00b894" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
       : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d63031" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
     const argsHtml = tc.args
       ? Object.entries(tc.args)
-          .filter(([k]) => k !== 'diagram_id')
-          .map(([k, v]) =>
-            `<span class="tool-arg-key">${escapeHtml(k)}:</span> ` +
-            `<span class="tool-arg-val">${escapeHtml(String(v).substring(0, 100))}</span>`
-          )
-          .join(' &nbsp;·&nbsp; ')
+        .filter(([k]) => k !== 'diagram_id')
+        .map(([k, v]) =>
+          `<span class="tool-arg-key">${escapeHtml(k)}:</span> ` +
+          `<span class="tool-arg-val">${escapeHtml(String(v).substring(0, 100))}</span>`
+        )
+        .join(' &nbsp;·&nbsp; ')
       : '';
 
     html += `
@@ -585,8 +678,8 @@ function renderToolCalls(toolCalls) {
           <div class="tool-call-info">
             <span class="tool-call-name" style="color:${colors.text}">${escapeHtml(tc.tool_name)}</span>
             ${tc.result_summary
-              ? `<span class="tool-call-summary">${escapeHtml(tc.result_summary)}</span>`
-              : ''}
+        ? `<span class="tool-call-summary">${escapeHtml(tc.result_summary)}</span>`
+        : ''}
           </div>
           <div class="tool-call-badges">
             <span class="tool-duration-badge">${duration}</span>
@@ -607,7 +700,7 @@ function renderToolCalls(toolCalls) {
 }
 
 function toggleToolTimeline() {
-  const body    = toolCallsEl.querySelector('.tool-timeline-body');
+  const body = toolCallsEl.querySelector('.tool-timeline-body');
   const chevron = toolCallsEl.querySelector('.tool-chevron');
   if (body) {
     body.classList.toggle('collapsed');
@@ -641,12 +734,12 @@ function formatMarkdown(text) {
 
   // 4. Headers
   out = out.replace(/^### (.+)$/gim, '<h3>$1</h3>');
-  out = out.replace(/^## (.+)$/gim,  '<h2>$1</h2>');
-  out = out.replace(/^# (.+)$/gim,   '<h1>$1</h1>');
+  out = out.replace(/^## (.+)$/gim, '<h2>$1</h2>');
+  out = out.replace(/^# (.+)$/gim, '<h1>$1</h1>');
 
   // 5. Bold & italic
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/\*(.+?)\*/g,     '<em>$1</em>');
+  out = out.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
   // 6. Unordered lists
   out = out.replace(/^(?:-|\*)\s+(.+)$/gim, '<li>$1</li>');
@@ -677,9 +770,48 @@ function escapeHtml(str) {
   return d.innerHTML;
 }
 
-function showToast(msg) {
-  // Simple fallback — replace with a proper toast library if desired
-  alert(msg);
+function showToast(msg, type = 'info') {
+  if (!toastContainer) {
+    alert(msg);
+    return;
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+
+  const icons = {
+    info: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+    success: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    error: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    warning: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+  };
+
+  toast.innerHTML = `
+    <div class="toast-icon">${icons[type] || icons.info}</div>
+    <div class="toast-content">${escapeHtml(msg)}</div>
+    <button class="toast-close" aria-label="Close">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  `;
+
+  toastContainer.appendChild(toast);
+
+  // Trigger animation
+  requestAnimationFrame(() => toast.classList.add('show'));
+
+  // Autohide
+  let hideTimeout = setTimeout(dismiss, 4000);
+
+  // Close button
+  toast.querySelector('.toast-close').addEventListener('click', () => {
+    clearTimeout(hideTimeout);
+    dismiss();
+  });
+
+  function dismiss() {
+    toast.classList.remove('show');
+    toast.addEventListener('transitionend', () => toast.remove());
+  }
 }
 
 // ==========================================================================
