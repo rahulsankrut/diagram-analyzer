@@ -91,7 +91,9 @@ def export_visualization(diagram_id: str) -> dict[str, Any]:
         src_label = comp_id_to_label.get(trace.from_component, trace.from_component[:8])
         dst_label = comp_id_to_label.get(trace.to_component, trace.to_component[:8])
         traces.append({
-            "from": src_label,
+            "from_id": trace.from_component,   # unique ID used as Mermaid node identifier
+            "to_id": trace.to_component,        # unique ID used as Mermaid node identifier
+            "from": src_label,                  # human-readable display label
             "to": dst_label,
             "from_pin": trace.from_pin,
             "to_pin": trace.to_pin,
@@ -495,21 +497,39 @@ def _build_mermaid(
         one of ``"connectivity"``, ``"topology"``, or ``""`` (no graph).
     """
     if traces:
-        lines = ["graph LR"]
+        # Use component IDs (not display labels) as Mermaid node identifiers so
+        # that:  (a) spaces/digits in labels don't break syntax, and
+        #         (b) two resistors both labelled "10K" stay as separate nodes.
+        node_defs: dict[str, str] = {}   # mermaid_id -> display label
+        edge_lines: list[str] = []
         seen_edges: set[str] = set()
+
         for t in traces:
-            src = _mermaid_safe(t["from"])
-            dst = _mermaid_safe(t["to"])
-            edge_key = f"{src}-->{dst}"
+            # Prefer the explicit component ID; fall back to label when absent
+            src_raw = t.get("from_id") or t["from"]
+            dst_raw = t.get("to_id") or t["to"]
+            src_id = _mermaid_safe(src_raw)
+            dst_id = _mermaid_safe(dst_raw)
+            src_lbl = _mermaid_display(t["from"])
+            dst_lbl = _mermaid_display(t["to"])
+
+            node_defs.setdefault(src_id, src_lbl)
+            node_defs.setdefault(dst_id, dst_lbl)
+
+            edge_key = f"{src_id}-->{dst_id}"
             if edge_key in seen_edges:
                 continue
             seen_edges.add(edge_key)
+
             pin_label = ""
             if t.get("from_pin") or t.get("to_pin"):
-                pin_label = f"|{t.get('from_pin', '')} → {t.get('to_pin', '')}|"
-            lines.append(f"  {src} -->{pin_label} {dst}")
-        if len(lines) > 1:
-            return "\n".join(lines), "connectivity"
+                pin_label = f'|{t.get("from_pin", "")} to {t.get("to_pin", "")}|'
+            edge_lines.append(f"  {src_id} -->{pin_label} {dst_id}")
+
+        if edge_lines:
+            # Emit explicit node definitions first so Mermaid assigns labels
+            def_lines = [f'  {nid}["{lbl}"]' for nid, lbl in node_defs.items()]
+            return "\n".join(["graph LR"] + def_lines + edge_lines), "connectivity"
 
     # No traces — fall back to component topology grouped by type
     if not components:
@@ -525,11 +545,13 @@ def _build_mermaid(
 
     lines = ["graph LR"]
     for ctype, comps in by_type.items():
-        safe_type = _mermaid_safe(ctype.replace(" ", "_"))
+        safe_type = _mermaid_safe(ctype)
         lines.append(f"  subgraph {safe_type}")
         for comp in comps:
-            node_id = _mermaid_safe(comp.component_id.replace("-", "_"))[:16]
-            display = _mermaid_safe(comp.value or ctype)[:22]
+            # Use full sanitized component_id — never truncate, to avoid
+            # duplicate node IDs when two UUIDs share a common prefix.
+            node_id = _mermaid_safe(comp.component_id)
+            display = _mermaid_display(comp.value or ctype)
             lines.append(f'    {node_id}["{display}"]')
         lines.append("  end")
 
@@ -577,8 +599,44 @@ def _render_graph_tab(mermaid_def: str, graph_mode: str) -> str:
     )
 
 
-def _mermaid_safe(label: str) -> str:
-    """Sanitize a label for use as a Mermaid node identifier."""
-    safe = label.replace('"', "'").replace("(", "[").replace(")", "]")
-    safe = safe.replace("<", "").replace(">", "").replace("{", "").replace("}", "")
+def _mermaid_safe(raw: str) -> str:
+    """Sanitize a string for use as a Mermaid node *identifier*.
+
+    Mermaid node IDs must contain only alphanumerics and underscores, and
+    must not begin with a digit (otherwise Mermaid v10 raises a parse error
+    for common component values like ``2N3904`` or ``10K``).
+
+    Args:
+        raw: Arbitrary string (component ID, label, type name, …).
+
+    Returns:
+        A string safe to use verbatim as a Mermaid node identifier.
+    """
+    # Replace common separators / special chars with underscore
+    safe = raw.replace("-", "_").replace(" ", "_").replace(".", "_")
+    safe = safe.replace("/", "_").replace("\\", "_")
+    # Strip remaining non-alphanumeric/underscore characters
+    safe = "".join(c if c.isalnum() or c == "_" else "_" for c in safe)
+    # Collapse consecutive underscores for readability
+    import re as _re
+    safe = _re.sub(r"_+", "_", safe).strip("_")
+    # Mermaid IDs cannot start with a digit
+    if safe and safe[0].isdigit():
+        safe = "n" + safe
     return safe or "unknown"
+
+
+def _mermaid_display(text: str) -> str:
+    """Escape a human-readable label for use inside Mermaid node brackets.
+
+    Double quotes inside the bracketed label would break Mermaid syntax;
+    replace them with single quotes.  Truncate to 30 chars to keep the
+    graph readable.
+
+    Args:
+        text: Raw display text (component value, type, …).
+
+    Returns:
+        Escaped, truncated string safe to embed in ``node["label"]``.
+    """
+    return text.replace('"', "'")[:30]
