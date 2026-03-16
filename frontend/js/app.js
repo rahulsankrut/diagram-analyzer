@@ -142,9 +142,9 @@ function setupFollowup() {
 // ==========================================================================
 
 function handleFile(file) {
-  const validTypes = ['image/jpeg', 'image/png', 'image/tiff', 'image/tif'];
+  const validTypes = ['image/jpeg', 'image/png', 'image/tiff', 'image/tif', 'image/webp'];
   const ext = file.name.split('.').pop().toLowerCase();
-  const validExts = ['jpg', 'jpeg', 'png', 'tif', 'tiff'];
+  const validExts = ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'webp'];
 
   if (!validTypes.includes(file.type) && !validExts.includes(ext)) {
     showToast('Please upload a valid image file (PNG, JPEG, TIFF).', 'warning');
