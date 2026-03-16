@@ -97,11 +97,14 @@ def export_visualization(diagram_id: str) -> dict[str, Any]:
             "to_pin": trace.to_pin,
         })
 
+    # Build Mermaid graph: real connectivity if traces exist, else component topology
+    mermaid_def, graph_mode = _build_mermaid(traces, metadata.components)
+
     # Collect unique component types for filter chips
     comp_types = sorted({el["type"] for el in elements if el["kind"] == "component"})
 
     html_content = _render_html(
-        img_b64, img_w, img_h, elements, traces, comp_types, diagram_id,
+        img_b64, img_w, img_h, elements, mermaid_def, graph_mode, comp_types, diagram_id,
     )
 
     return {
@@ -126,7 +129,8 @@ def _render_html(
     img_w: int,
     img_h: int,
     elements: list[dict[str, Any]],
-    traces: list[dict[str, str]],
+    mermaid_def: str,
+    graph_mode: str,
     comp_types: list[str],
     diagram_id: str,
 ) -> str:
@@ -162,9 +166,6 @@ def _render_html(
             f'<span class="conf" style="color:{conf_col}">{el["conf_str"]}</span>'
             f'</li>'
         )
-
-    # Build Mermaid graph definition
-    mermaid_def = _build_mermaid(traces)
 
     # Build type filter chips HTML
     chips_html = ""
@@ -234,9 +235,11 @@ body {{ font-family: 'Segoe UI', system-ui, sans-serif; background:#0b0c10; colo
 
 /* Graph Tab */
 #tab-graph {{ padding:12px; align-items:center; }}
-#tab-graph .no-data {{ color:#888; font-size:14px; text-align:center; padding:40px 20px; }}
+#tab-graph .no-data {{ color:#888; font-size:14px; text-align:center; padding:40px 20px; line-height:1.6; }}
 #mermaid-container {{ width:100%; overflow:auto; }}
 #mermaid-container svg {{ max-width:100%; }}
+.graph-note {{ display:flex; align-items:flex-start; gap:8px; background:rgba(108,92,231,0.1); border:1px solid rgba(108,92,231,0.3); border-radius:8px; padding:10px 12px; font-size:12px; color:#a29bfe; line-height:1.5; margin-bottom:12px; }}
+.graph-note svg {{ flex-shrink:0; margin-top:1px; }}
 
 /* Details Tab */
 #tab-details {{ padding:16px; }}
@@ -289,9 +292,7 @@ body {{ font-family: 'Segoe UI', system-ui, sans-serif; background:#0b0c10; colo
 
   <!-- Graph Tab -->
   <div id="tab-graph" class="tab-body">
-    {f'<div id="mermaid-container"><pre class="mermaid">{mermaid_def}</pre></div>'
-     if mermaid_def else
-     '<div class="no-data">No connectivity data available.<br>Trace data is needed to generate the graph.</div>'}
+    {_render_graph_tab(mermaid_def, graph_mode)}
   </div>
 
   <!-- Details Tab -->
@@ -301,7 +302,7 @@ body {{ font-family: 'Segoe UI', system-ui, sans-serif; background:#0b0c10; colo
   </div>
 </div>
 
-{'<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>' if mermaid_def else ''}
+{'<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>' if mermaid_def else '<!-- no mermaid -->'}
 <script>
 // ---- Data ----
 const ELEMENTS = {elements_json};
@@ -467,39 +468,113 @@ function applyFilters() {{
 }}
 
 // ---- Mermaid Init ----
-{"if (typeof mermaid !== 'undefined') { mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#6c5ce7', primaryTextColor: '#fff', primaryBorderColor: '#a29bfe', lineColor: '#457b9d', secondaryColor: '#16213e', tertiaryColor: '#1c1e29' } }); }" if mermaid_def else ""}
+{"if (typeof mermaid !== 'undefined') { mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#6c5ce7', primaryTextColor: '#fff', primaryBorderColor: '#a29bfe', lineColor: '#457b9d', secondaryColor: '#16213e', tertiaryColor: '#1c1e29' } }); }" if mermaid_def else "// mermaid not loaded"}
 </script>
 </body>
 </html>"""
 
 
-def _build_mermaid(traces: list[dict[str, str]]) -> str:
-    """Build a Mermaid graph definition from trace data.
+def _build_mermaid(
+    traces: list[dict[str, str]],
+    components: list[Any] | None = None,
+) -> tuple[str, str]:
+    """Build a Mermaid graph from traces, or a component topology fallback.
+
+    When trace data is available, renders a directed connectivity graph with
+    pin labels.  When no traces exist but components were detected, renders a
+    grouped topology diagram (nodes only, no fabricated edges) with a clear
+    note that connection data is absent.
 
     Args:
         traces: List of dicts with ``from``, ``to``, ``from_pin``, ``to_pin``.
+        components: Optional list of ``Component`` objects used for the
+            topology fallback when traces is empty.
 
     Returns:
-        Mermaid graph definition string, or empty string if no traces.
+        Tuple of ``(mermaid_definition, graph_mode)`` where ``graph_mode`` is
+        one of ``"connectivity"``, ``"topology"``, or ``""`` (no graph).
     """
-    if not traces:
-        return ""
+    if traces:
+        lines = ["graph LR"]
+        seen_edges: set[str] = set()
+        for t in traces:
+            src = _mermaid_safe(t["from"])
+            dst = _mermaid_safe(t["to"])
+            edge_key = f"{src}-->{dst}"
+            if edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+            pin_label = ""
+            if t.get("from_pin") or t.get("to_pin"):
+                pin_label = f"|{t.get('from_pin', '')} → {t.get('to_pin', '')}|"
+            lines.append(f"  {src} -->{pin_label} {dst}")
+        if len(lines) > 1:
+            return "\n".join(lines), "connectivity"
+
+    # No traces — fall back to component topology grouped by type
+    if not components:
+        return "", ""
+
+    limited = components[:60]  # cap to avoid Mermaid overflow
+
+    # Group by component type
+    by_type: dict[str, list[Any]] = {}
+    for comp in limited:
+        ctype = comp.component_type or "unknown"
+        by_type.setdefault(ctype, []).append(comp)
 
     lines = ["graph LR"]
-    seen_edges: set[str] = set()
-    for t in traces:
-        src = _mermaid_safe(t["from"])
-        dst = _mermaid_safe(t["to"])
-        edge_key = f"{src}-->{dst}"
-        if edge_key in seen_edges:
-            continue
-        seen_edges.add(edge_key)
-        pin_label = ""
-        if t.get("from_pin") or t.get("to_pin"):
-            pin_label = f"|{t.get('from_pin', '')} → {t.get('to_pin', '')}|"
-        lines.append(f"  {src} -->{pin_label} {dst}")
+    for ctype, comps in by_type.items():
+        safe_type = _mermaid_safe(ctype.replace(" ", "_"))
+        lines.append(f"  subgraph {safe_type}")
+        for comp in comps:
+            node_id = _mermaid_safe(comp.component_id.replace("-", "_"))[:16]
+            display = _mermaid_safe(comp.value or ctype)[:22]
+            lines.append(f'    {node_id}["{display}"]')
+        lines.append("  end")
 
-    return "\n".join(lines) if len(lines) > 1 else ""
+    return ("\n".join(lines), "topology") if len(lines) > 1 else ("", "")
+
+
+def _render_graph_tab(mermaid_def: str, graph_mode: str) -> str:
+    """Return the inner HTML for the Graph tab panel.
+
+    Args:
+        mermaid_def: Mermaid graph definition string (may be empty).
+        graph_mode: ``"connectivity"``, ``"topology"``, or ``""`` for no data.
+
+    Returns:
+        HTML string for the graph tab body.
+    """
+    if not mermaid_def:
+        return (
+            '<div class="no-data">'
+            "No components or connectivity data available.<br>"
+            "Run the preprocessing pipeline to generate diagram structure."
+            "</div>"
+        )
+
+    if graph_mode == "topology":
+        note = (
+            '<div class="graph-note">'
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" '
+            'stroke="currentColor" stroke-width="2">'
+            '<circle cx="12" cy="12" r="10"/>'
+            '<line x1="12" y1="8" x2="12" y2="12"/>'
+            '<line x1="12" y1="16" x2="12.01" y2="16"/>'
+            "</svg>"
+            " Component topology — no electrical trace data available. "
+            "Nodes are detected components grouped by type; edges are not shown."
+            "</div>"
+        )
+    else:
+        note = ""
+
+    return (
+        f'{note}<div id="mermaid-container">'
+        f'<pre class="mermaid">{html.escape(mermaid_def)}</pre>'
+        f"</div>"
+    )
 
 
 def _mermaid_safe(label: str) -> str:
