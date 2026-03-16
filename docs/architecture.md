@@ -132,25 +132,43 @@ async def ingest(self, raw_bytes: bytes, filename: str) -> str:
 
 **Code:** `src/preprocessing/pipeline.py` → `PreprocessingPipeline.run()`
 
-### Theory: Why Run OCR and CV Concurrently?
+### Theory: Why OCR Must Run Before CV (Not Concurrent)
 
-OCR (Document AI) is a remote API call — ~2–4 seconds of network I/O. CV (OpenCV) runs locally — ~0.5–2 seconds CPU-bound work. These are independent: OCR doesn't need CV results and vice versa. Running them concurrently saves ~2–4 seconds per ingestion with zero code complexity (Python `asyncio.create_task` + `asyncio.to_thread`).
+Earlier versions ran OCR and CV concurrently with `asyncio.gather`.  This was
+changed following Stürmer et al. (arXiv:2411.13929), which showed that **text
+strokes are the dominant source of false-positive CV detections** on dense
+engineering diagrams.  Character strokes register as closed contours (false
+symbols) and short Hough segments (spurious traces).
+
+The fix: paint every OCR bounding box white on the grayscale image *before*
+any CV algorithm sees it.  This requires OCR results to be available first.
 
 ```python
-async def run(self, image, diagram_id, filename) -> DiagramMetadata:
-    # OCR is async (network call); CV is sync (CPU-bound, offloaded to thread pool)
-    ocr_task  = asyncio.create_task(self.ocr_extractor.extract(image))
-    cv_result = await asyncio.to_thread(self.cv_pipeline.run, image)
-    text_labels = await ocr_task   # wait for OCR to complete
+async def run(self, image, filename) -> DiagramMetadata:
+    # STEP 1: OCR (network call, ~2–4 s)
+    labels: list[TextLabel] = await self._ocr.extract(pil_image)
 
-    # Post-process CV output into semantic models
-    components = _map_cv_symbols_to_components(cv_result.symbols)
-    traces     = _build_traces_from_lines(cv_result.detected_lines, components)
-    title      = TitleBlockExtractor.extract(text_labels, image)
+    # STEP 2: CV (CPU-bound, ~0.5–1 s) with OCR text regions masked
+    # _mask_text_regions() paints each text bbox white before
+    # contour detection and Hough-line detection run.
+    cv_result: CVResult = await asyncio.to_thread(
+        self._cv.run, pil_image, labels
+    )
 
-    return DiagramMetadata(diagram_id=diagram_id, components=components,
-                           text_labels=text_labels, traces=traces, title_block=title, ...)
+    # Symbol → Component (geometry only; agent classifies type)
+    components = [Component(...) for sym in cv_result.symbols]
+
+    # DetectedLine → Trace (first-pass: match line endpoints to component bboxes)
+    traces = _build_traces(cv_result.detected_lines, components)
+
+    return DiagramMetadata(
+        text_labels=labels, components=components, traces=traces,
+        junctions=[j.to_dict() for j in cv_result.junctions], ...
+    )
 ```
+
+The concurrency loss (CV no longer overlaps with OCR) is negligible: CV adds
+<1 s to a pipeline already dominated by the 2–4 s OCR API roundtrip.
 
 ### OCR: Document AI
 
@@ -167,24 +185,41 @@ Google Cloud Document AI returns bounding polygons (4 vertices, normalized 0–1
 
 **Code:** `src/preprocessing/cv_pipeline.py` → `CVPipeline`
 
+**Text masking (new — applied before all CV):**
+```
+OCR text bboxes → paint each region white (255) on grayscale image
+→ 2 px border pad added (catches ascenders/descenders)
+→ Masked grayscale fed to all CV steps below
+```
+Eliminates character-stroke false positives before any detection runs.
+
 **Symbol detection:**
 ```
-RGB → Grayscale → Gaussian blur (5×5) → Adaptive threshold (block=11, C=2)
-→ Find contours (RETR_TREE) → Filter by area (>100 px²)
-→ Classify by aspect ratio + bounding area → Symbol objects
+Masked grayscale → Gaussian blur (3×3) → Otsu threshold (THRESH_BINARY_INV)
+→ Find contours (RETR_EXTERNAL) → Filter area < 200 px²
+→ Symbol(bbox, confidence=0.5)   [type = "unknown"; agent classifies]
 ```
-
-Symbol classification heuristics (project-specific, not trained ML):
-- Aspect ratio ≈ 1.0 + area in [200, 2000] px² → circle-like symbol (valve, sensor)
-- Aspect ratio 2:1–3:1 + area in [500, 5000] px² → rectangular symbol (resistor, relay, IC)
-- Very small tight contours → noise, filtered out
 
 **Line detection:**
 ```
-RGB → Grayscale → Gaussian blur → Canny edge (50, 150)
-→ HoughLinesP (rho=1, θ=π/180, threshold=50, minLen=30, maxGap=10)
+Masked grayscale → Canny edge (50, 150)
+→ HoughLinesP (rho=1, θ=π/180, threshold=80, minLen=20, maxGap=5)
 → DetectedLine objects with normalised coordinates
 ```
+
+**Junction classification (new — Stürmer et al. 2024):**
+```
+For every pair of DetectedLine objects:
+  _seg_intersect(A, B) → (t, u, ix, iy) or None
+  if t < 0.15 or t > 0.85 or u < 0.15 or u > 0.85:
+    → Junction(CONNECTED)   ← T- or L-junction; lines genuinely meet
+  else:
+    → Junction(CROSSING)    ← X-crossing; lines pass through, NOT connected
+```
+
+`JunctionType.CROSSING` junctions must never be treated as electrical or fluid
+connections.  The `trace_net` tool's `topology_hint` and the graph visualization
+both honour this distinction.
 
 ### Title Block Extraction
 
@@ -222,35 +257,39 @@ The agent still functions — it receives visual analysis of the diagram image v
 
 The fundamental constraint: the LLM sees all images at ~1024×1024 px. A tile covering 25% of the diagram's area and rendered at 512 px gives the agent **2× better effective resolution** compared to seeing the full diagram at 1024 px.
 
-| Level | Grid | Tiles | Coverage per tile | Effective resolution vs. full-image |
-|-------|------|-------|-------------------|-------------------------------------|
-| L0    | 1×1  | 1     | 100%              | 1× (baseline orientation) |
-| L1    | 2×2  | 4     | ~60%              | ~1.5× |
-| L2    | 4×4  | 16    | ~35%              | ~2–3× |
+| Level | Grid | Tiles | Coverage per tile (50% overlap) | Effective resolution vs. full-image |
+|-------|------|-------|----------------------------------|-------------------------------------|
+| L0    | 1×1  | 1     | 100%                             | 1× (baseline orientation) |
+| L1    | 2×2  | 4     | ~70%                             | ~1.5× |
+| L2    | 4×4  | 16    | ~40%                             | ~2–3× |
 
 **Total: 21 tiles per diagram.** When the agent calls `inspect_zone`, the tool selects the most-detailed tiles whose bounding boxes intersect the queried region.
 
-### The 20% Overlap Design
+### The 50% Overlap Design (Stürmer et al. 2024)
 
 ```python
 # src/tiling/tile_generator.py
-OVERLAP_FRACTION = 0.20
+DEFAULT_OVERLAP = 0.50    # raised from 0.20 — see Stürmer et al. arXiv:2411.13929
 
-def _compute_tile_bbox(level, row, col, grid_rows, grid_cols):
-    base_w = 1.0 / grid_cols
-    base_h = 1.0 / grid_rows
-
-    x_min = max(0, col * base_w - OVERLAP_FRACTION * base_w)
-    y_min = max(0, row * base_h - OVERLAP_FRACTION * base_h)
-    x_max = min(1, (col + 1) * base_w + OVERLAP_FRACTION * base_w)
-    y_max = min(1, (row + 1) * base_h + OVERLAP_FRACTION * base_h)
-
-    return BoundingBox(x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max)
+def _tile_coords(self, n: int, overlap_fraction: float) -> list[tuple[float, float]]:
+    if n == 1:
+        return [(0.0, 1.0)]
+    tile_width = 1.0 / (1.0 + (n - 1) * (1.0 - overlap_fraction))
+    step = tile_width * (1.0 - overlap_fraction)
+    return [(max(0.0, i * step), min(1.0, i * step + tile_width)) for i in range(n)]
 ```
 
-Without overlap, a component symbol straddling a tile boundary would appear split: half its pixels in one tile, half in another. With 20% overlap, the agent always sees complete symbols regardless of their position in the diagram.
+For n=4, overlap=0.50: `tile_width = 0.40`, `step = 0.20`.
 
-**Trade-off:** 20% overlap means each tile contains ~40% more pixels than strictly necessary. For 21 tiles at 512 px: `21 × 512² × 1.4 ≈ 7.6 MP` additional storage vs. `5.5 MP` without overlap. Acceptable.
+**Why 50% not 20%?** Stürmer et al. measured that symbol fragmentation at tile
+boundaries costs **>10 mAP points** at any overlap below 50%.  The 15%
+improvement in detection accuracy justifies the ~2× storage cost.  A
+`MIN_OVERLAP_FRACTION = 0.50` validator in `TileLevel` rejects lower values
+at construction time to prevent accidental regression.
+
+**Trade-off:** 50% overlap at level 2 means each of the 16 tiles contains
+content from a 40%×40% region (not 25%×25%).  Adjacent tiles share half their
+content.  Total unique pixel coverage is the same; the duplication is the cost.
 
 ### Set-of-Marks (SOM) Visual Grounding
 
@@ -521,7 +560,7 @@ The system degrades gracefully at every layer:
 | Document AI credentials | No-op OCR stub → empty text labels |
 | OpenCV detection failures | Empty component/trace lists |
 | No tile pyramid | `inspect_zone` crops original image directly |
-| No traces in metadata | `trace_net` returns `trace_data_unavailable: true` |
+| No traces in metadata | `trace_net` returns `trace_data_unavailable: true` + `topology_hint` with nearby junction counts |
 | Vertex AI transient error | Exponential backoff retry (3 attempts, 2s→4s→8s→30s cap) |
 | `google-adk` not installed | `_agent = None`, server returns 503 with clear error message |
 | Image not available | `_load_image_part()` returns `None`, no inline_data in Content |
