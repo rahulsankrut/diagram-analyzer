@@ -8,7 +8,7 @@ Supports both direct module imports and package-level imports:
 
 from src.models.analysis import AnalysisResult, BOMEntry, NetlistEntry
 from src.models.component import Component, Pin
-from src.models.cv import CVResult, DetectedLine, Symbol
+from src.models.cv import CVResult, DetectedLine, Junction, JunctionType, Symbol
 from src.models.diagram import DiagramMetadata, IngestionRequest, IngestionResult
 from src.models.ocr import BoundingBox, OCRElement, OCRResult
 from src.models.text_label import TextLabel
@@ -32,6 +32,8 @@ __all__ = [
     "Symbol",
     "DetectedLine",
     "CVResult",
+    "Junction",
+    "JunctionType",
     # title_block
     "TitleBlock",
     # diagram

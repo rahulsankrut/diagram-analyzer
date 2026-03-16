@@ -6,7 +6,10 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.models.ocr import BoundingBox
 
-MIN_OVERLAP_FRACTION = 0.20
+# Raised from 0.20 to 0.50 per Stürmer et al. (arXiv:2411.13929) empirical finding:
+# symbol fragmentation at patch boundaries costs ~10% detection accuracy even at
+# 50% overlap, making 50% the recommended minimum for P&ID-class diagrams.
+MIN_OVERLAP_FRACTION = 0.50
 
 
 class TileLevel(BaseModel):
@@ -17,7 +20,9 @@ class TileLevel(BaseModel):
         grid_cols: Number of tile columns at this level.
         grid_rows: Number of tile rows at this level.
         overlap_fraction: Fractional overlap between adjacent tiles.
-            Must be >= 0.20 per CLAUDE.md spec.
+            Must be >= 0.50 per Stürmer et al. (arXiv:2411.13929) — 50% overlap
+            is the empirically validated minimum to avoid symbol fragmentation at
+            patch boundaries.
     """
 
     level: int = Field(ge=0, le=2)
@@ -28,7 +33,7 @@ class TileLevel(BaseModel):
     @field_validator("overlap_fraction")
     @classmethod
     def validate_min_overlap(cls, v: float) -> float:
-        """Enforce the ≥20% overlap floor from CLAUDE.md."""
+        """Enforce the ≥50% overlap floor (Stürmer et al. 2024)."""
         if v < MIN_OVERLAP_FRACTION:
             raise ValueError(
                 f"overlap_fraction must be >= {MIN_OVERLAP_FRACTION}, got {v}"

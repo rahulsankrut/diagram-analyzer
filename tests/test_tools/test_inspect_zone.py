@@ -39,11 +39,12 @@ def test_tile_has_required_keys(mock_store: MagicMock) -> None:
 
 
 def test_tile_image_is_valid_base64(mock_store: MagicMock) -> None:
+    # inspect_zone encodes tile images as JPEG (fmt="JPEG") to reduce context size.
     result = inspect_zone(DIAGRAM_ID, 0, 0, 100, 100)
     b64 = result["tiles"][0]["image_base64"]
     assert b64 is not None
     decoded = base64.b64decode(b64)
-    assert decoded[:4] == b"\x89PNG"
+    assert decoded[:2] == b"\xff\xd8"  # JPEG SOI marker
 
 
 def test_uses_most_detailed_level(mock_store: MagicMock) -> None:
@@ -53,20 +54,26 @@ def test_uses_most_detailed_level(mock_store: MagicMock) -> None:
 
 
 def test_components_filtered_by_region(mock_store: MagicMock) -> None:
-    # comp_a centre is at ~(0.20, 0.31), x1=0..30%, y1=0..50%
+    # comp_a centre is at ~(0.20, 0.31) — inside x=0..30%, y=0..50%.
+    # comp_b centre is at ~(0.70, 0.31) — outside that region.
+    # inspect_zone returns component_count (not a list), so verify the
+    # spatial filter kept exactly one component.
     result = inspect_zone(DIAGRAM_ID, 0, 0, 30, 50)
-    comp_ids = [c["component_id"] for c in result["components"]]
-    assert COMP_A_ID in comp_ids
+    assert result["component_count"] == 1
 
 
 def test_component_count_matches_list(mock_store: MagicMock) -> None:
+    # Full-diagram query should surface both components.
+    # inspect_zone returns component_count as an integer (no list key).
     result = inspect_zone(DIAGRAM_ID, 0, 0, 100, 100)
-    assert result["component_count"] == len(result["components"])
+    assert result["component_count"] == 2
 
 
 def test_text_label_count_matches_list(mock_store: MagicMock) -> None:
+    # Full-diagram query should surface both text labels.
+    # inspect_zone returns text_label_count as an integer (no list key).
     result = inspect_zone(DIAGRAM_ID, 0, 0, 100, 100)
-    assert result["text_label_count"] == len(result["text_labels"])
+    assert result["text_label_count"] == 2
 
 
 # ---------------------------------------------------------------------------

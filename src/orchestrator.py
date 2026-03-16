@@ -385,7 +385,7 @@ class _NoOpOCR:
 class _NoOpCV:
     """Stub CV pipeline that returns an empty CVResult without OpenCV calls."""
 
-    def run(self, image: Any) -> Any:  # noqa: ARG002
+    def run(self, image: Any, text_labels: Any = None) -> Any:  # noqa: ARG002
         from src.models.cv import CVResult
 
         return CVResult()

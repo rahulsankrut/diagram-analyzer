@@ -3,15 +3,59 @@
 These models represent the *geometric* output of the OpenCV pipeline before
 semantic interpretation.  A :class:`Symbol` is a detected closed contour; a
 :class:`DetectedLine` is a raw line segment from Hough-transform detection.
+A :class:`Junction` is a classified line-intersection point: CONNECTED when
+lines genuinely meet (T/L junction) or CROSSING when they pass through each
+other without connecting (X-crossing).
+
+Distinguishing CONNECTED from CROSSING junctions is critical for correct net
+tracing — two pipes that cross on a P&ID at an X-crossing are NOT electrically
+or fluidically connected (Stürmer et al. 2024, arXiv:2411.13929).
+
 Semantic interpretation (Component, Trace) lives in the domain models.
 """
 
 import uuid
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from src.models.ocr import BoundingBox
+
+
+class JunctionType(str, Enum):
+    """Topology class of a line-intersection point.
+
+    Attributes:
+        CONNECTED: A T- or L-junction where lines genuinely meet and share a
+            node.  The pipes/wires are electrically or fluidically connected.
+        CROSSING: An X-junction where two lines pass through each other without
+            connecting.  The pipes cross spatially but are NOT joined.
+    """
+
+    CONNECTED = "connected"
+    CROSSING = "crossing"
+
+
+class Junction(BaseModel):
+    """A classified line-intersection point detected by the CV pipeline.
+
+    Attributes:
+        junction_id: Unique ID for this detection instance.
+        bbox: Small bounding box centred on the intersection point (normalized).
+        junction_type: Whether the lines genuinely meet (:attr:`JunctionType.CONNECTED`)
+            or merely cross (:attr:`JunctionType.CROSSING`).
+        confidence: Classification confidence in [0.0, 1.0].
+    """
+
+    junction_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    bbox: BoundingBox
+    junction_type: JunctionType = JunctionType.CONNECTED
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable dict representation."""
+        return self.model_dump(mode="json")
 
 
 class Symbol(BaseModel):
@@ -76,12 +120,14 @@ class CVResult(BaseModel):
     Attributes:
         symbols: All detected closed-contour symbols.
         detected_lines: All detected line segments.
-        junctions: Bounding boxes of detected T/X trace junctions.
+        junctions: Classified intersection points between detected lines.
+            Each junction is typed as CONNECTED (lines genuinely meet) or
+            CROSSING (lines pass through without connecting).
     """
 
     symbols: list[Symbol] = Field(default_factory=list)
     detected_lines: list[DetectedLine] = Field(default_factory=list)
-    junctions: list[BoundingBox] = Field(default_factory=list)
+    junctions: list[Junction] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict representation."""

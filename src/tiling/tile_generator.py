@@ -10,7 +10,10 @@ from src.models.ocr import BoundingBox
 from src.models.tiling import Tile, TilePyramid
 
 DEFAULT_MAX_SIZE = 1024
-DEFAULT_OVERLAP = 0.20
+# Raised from 0.20 to 0.50 per Stürmer et al. (arXiv:2411.13929): 50% overlap
+# is the empirically validated minimum to prevent symbol fragmentation at tile
+# boundaries, which costs ~10% detection accuracy even at 50%.
+DEFAULT_OVERLAP = 0.50
 
 # Grid dimensions (cols, rows) for each pyramid level.
 _LEVEL_GRIDS: dict[int, tuple[int, int]] = {
@@ -28,8 +31,9 @@ class TilingConfig:
         num_levels: Number of pyramid levels to generate.  Levels 0, 1, and 2
             correspond to 1×1, 2×2, and 4×4 grids respectively.
         overlap_fraction: Fractional overlap shared by adjacent tiles.  Must be
-            >= 0.20 per project spec so that components are never split at a tile
-            boundary without appearing in both neighbours.
+            >= 0.50 per Stürmer et al. (arXiv:2411.13929) — 50% overlap is the
+            empirically validated minimum to prevent symbol fragmentation at
+            tile boundaries (fragmentation alone costs ~10% detection mAP).
         max_size: Maximum pixel dimension (width or height) for the level-0
             overview tile.  The image is downscaled proportionally if either
             dimension exceeds this value.

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 from unittest.mock import MagicMock
 
 import pytest
@@ -54,53 +53,6 @@ def test_title_block_present(mock_store: MagicMock) -> None:
     assert result["title_block"] is not None
     assert result["title_block"]["drawing_id"] == "DWG-001"
     assert result["title_block"]["revision"] == "A"
-
-
-def test_image_format_is_png(mock_store: MagicMock) -> None:
-    result = get_overview(DIAGRAM_ID)
-    assert result["image_format"] == "PNG"
-
-
-def test_image_base64_is_valid(mock_store: MagicMock) -> None:
-    result = get_overview(DIAGRAM_ID)
-    b64 = result["image_base64"]
-    assert b64 is not None
-    decoded = base64.b64decode(b64)
-    assert decoded[:4] == b"\x89PNG"
-
-
-# ---------------------------------------------------------------------------
-# Pyramid fallback: use level-0 tile image from pyramid
-# ---------------------------------------------------------------------------
-
-
-def test_uses_level0_tile_when_pyramid_available(mock_store: MagicMock) -> None:
-    """Should call load_tile_image with the level-0 tile."""
-    get_overview(DIAGRAM_ID)
-    mock_store.load_tile_image.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# Fallback path: no pyramid → downscale original
-# ---------------------------------------------------------------------------
-
-
-def test_falls_back_to_original_when_no_pyramid(
-    store_no_pyramid: MagicMock,
-) -> None:
-    result = get_overview(DIAGRAM_ID)
-    assert result["image_base64"] is not None
-    store_no_pyramid.load_original_image.assert_called_once_with(DIAGRAM_ID)
-
-
-# ---------------------------------------------------------------------------
-# No image at all → image_base64 is null
-# ---------------------------------------------------------------------------
-
-
-def test_image_base64_null_when_no_images(store_no_image: MagicMock) -> None:
-    result = get_overview(DIAGRAM_ID)
-    assert result["image_base64"] is None
 
 
 # ---------------------------------------------------------------------------

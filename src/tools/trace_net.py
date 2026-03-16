@@ -59,11 +59,25 @@ def trace_net(diagram_id: str, component_id: str, pin: str) -> dict[str, Any]:
         return {"error": f"Component not found: {component_id}"}
 
     if not metadata.traces:
+        connected_near, crossings_near = _junctions_near_component(
+            component, metadata.junctions
+        )
+        topology_note = (
+            f"{connected_near} connected junction(s) and "
+            f"{crossings_near} crossing(s) detected near this component. "
+            "Crossings are pass-through intersections — NOT electrical or "
+            "fluid connections even though they share a spatial point."
+        )
         return {
             "diagram_id": diagram_id,
             "component_id": component_id,
             "pin": pin,
             "trace_data_unavailable": True,
+            "topology_hint": {
+                "connected_junctions_nearby": connected_near,
+                "crossing_junctions_nearby": crossings_near,
+                "note": topology_note,
+            },
             "connections": [],
             "connection_count": 0,
         }
@@ -124,6 +138,40 @@ def _collect_connections(
             )
 
     return connections
+
+
+def _junctions_near_component(
+    component: Component,
+    junctions: list[dict[str, Any]],
+    proximity: float = 0.06,
+) -> tuple[int, int]:
+    """Count classified junctions within *proximity* of a component's centre.
+
+    Args:
+        component: The component whose neighbourhood to search.
+        junctions: Serialised :class:`~src.models.cv.Junction` dicts from
+            :attr:`~src.models.DiagramMetadata.junctions`.
+        proximity: Maximum normalised distance (in each axis) from the
+            component centre to a junction centre to be considered "nearby".
+            Defaults to 6% of diagram width/height.
+
+    Returns:
+        ``(connected_count, crossing_count)`` — number of CONNECTED and
+        CROSSING junctions found within the proximity window.
+    """
+    cx, cy = component.bbox.center()
+    connected = 0
+    crossings = 0
+    for j in junctions:
+        bbox = j.get("bbox", {})
+        jx = (bbox.get("x_min", 0.0) + bbox.get("x_max", 0.0)) / 2.0
+        jy = (bbox.get("y_min", 0.0) + bbox.get("y_max", 0.0)) / 2.0
+        if abs(jx - cx) <= proximity and abs(jy - cy) <= proximity:
+            if j.get("junction_type") == "connected":
+                connected += 1
+            elif j.get("junction_type") == "crossing":
+                crossings += 1
+    return connected, crossings
 
 
 def _connection_dict(

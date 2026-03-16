@@ -27,7 +27,7 @@ from src.preprocessing.pipeline import PreprocessingPipeline, _detect_format
 class _StubCV:
     """CV pipeline stub — returns an empty CVResult without importing OpenCV."""
 
-    def run(self, image: Image.Image) -> CVResult:  # noqa: ARG002
+    def run(self, image: Image.Image, text_labels: object = None) -> CVResult:  # noqa: ARG002
         return CVResult()
 
 
@@ -224,8 +224,12 @@ async def test_run_components_empty() -> None:
     assert result.components == []
 
 
-async def test_run_traces_empty() -> None:
-    """traces list is empty — semantic interpretation is Phase 3."""
+async def test_run_traces_empty_when_cv_returns_no_lines() -> None:
+    """traces list is empty when the CV pipeline detects no line segments.
+
+    _build_traces() short-circuits to [] when either components or detected_lines
+    is empty, so a stub CV that returns an empty CVResult still produces no traces.
+    """
     pipeline = _make_pipeline()
     result = await pipeline.run(_white_image())
     assert result.traces == []
@@ -275,7 +279,7 @@ async def test_run_continues_when_cv_returns_empty() -> None:
     """Pipeline completes normally when CV pipeline returns an empty CVResult."""
 
     class _EmptyCV:
-        def run(self, image: Image.Image) -> CVResult:  # noqa: ARG002
+        def run(self, image: Image.Image, text_labels: object = None) -> CVResult:  # noqa: ARG002
             return CVResult()
 
     pipeline = _make_pipeline(cv=_EmptyCV())

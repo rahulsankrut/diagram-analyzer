@@ -37,7 +37,7 @@ class TestTileLevel:
         assert tl.overlap_fraction == pytest.approx(MIN_OVERLAP_FRACTION)
 
     def test_valid_level_2(self) -> None:
-        tl = TileLevel(level=2, grid_cols=4, grid_rows=4, overlap_fraction=0.25)
+        tl = TileLevel(level=2, grid_cols=4, grid_rows=4, overlap_fraction=0.60)
         assert tl.grid_cols == 4
 
     def test_overlap_below_minimum_rejected(self) -> None:

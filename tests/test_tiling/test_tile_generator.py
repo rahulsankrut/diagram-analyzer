@@ -112,57 +112,61 @@ class TestOverlap:
         """Compute the overlap as a fraction of *tile_size*."""
         return (a_max - b_min) / tile_size
 
-    def test_level1_horizontal_overlap_at_least_20pct(self) -> None:
-        """Horizontally adjacent level-1 tiles must overlap by >= 20% of tile width."""
+    def test_level1_horizontal_overlap_at_least_50pct(self) -> None:
+        """Horizontally adjacent level-1 tiles must overlap by >= 50% of tile width.
+
+        50% is the empirically validated minimum from Stürmer et al.
+        (arXiv:2411.13929) — symbol fragmentation at boundaries costs ~10%
+        detection mAP even at this threshold.
+        """
         pyramid = TileGenerator(_make_image(), _make_metadata()).generate()
         left = pyramid.tile_at(1, 0, 0)
         right = pyramid.tile_at(1, 0, 1)
         assert left is not None and right is not None
         tile_width = left.bbox.x_max - left.bbox.x_min
         frac = self._overlap_fraction(left.bbox.x_max, right.bbox.x_min, tile_width)
-        # Use a tiny epsilon tolerance for floating-point rounding in the division.
-        assert frac >= 0.20 - 1e-9
+        assert frac >= 0.50 - 1e-9
 
-    def test_level1_vertical_overlap_at_least_20pct(self) -> None:
-        """Vertically adjacent level-1 tiles must overlap by >= 20% of tile height."""
+    def test_level1_vertical_overlap_at_least_50pct(self) -> None:
+        """Vertically adjacent level-1 tiles must overlap by >= 50% of tile height."""
         pyramid = TileGenerator(_make_image(), _make_metadata()).generate()
         top = pyramid.tile_at(1, 0, 0)
         bottom = pyramid.tile_at(1, 1, 0)
         assert top is not None and bottom is not None
         tile_height = top.bbox.y_max - top.bbox.y_min
         frac = self._overlap_fraction(top.bbox.y_max, bottom.bbox.y_min, tile_height)
-        assert frac >= 0.20 - 1e-9
+        assert frac >= 0.50 - 1e-9
 
-    def test_level2_horizontal_overlap_at_least_20pct(self) -> None:
-        """Horizontally adjacent level-2 tiles must overlap by >= 20% of tile width."""
+    def test_level2_horizontal_overlap_at_least_50pct(self) -> None:
+        """Horizontally adjacent level-2 tiles must overlap by >= 50% of tile width."""
         pyramid = TileGenerator(_make_image(), _make_metadata()).generate()
         left = pyramid.tile_at(2, 0, 0)
         right = pyramid.tile_at(2, 0, 1)
         assert left is not None and right is not None
         tile_width = left.bbox.x_max - left.bbox.x_min
         frac = self._overlap_fraction(left.bbox.x_max, right.bbox.x_min, tile_width)
-        assert frac >= 0.20 - 1e-9
+        assert frac >= 0.50 - 1e-9
 
-    def test_overlap_exactly_20pct_with_default_config(self) -> None:
-        """With the default 20% config, overlap should equal exactly 20%."""
+    def test_overlap_exactly_50pct_with_default_config(self) -> None:
+        """With the default config, overlap should equal exactly 50%."""
         pyramid = TileGenerator(_make_image(), _make_metadata()).generate()
         left = pyramid.tile_at(1, 0, 0)
         right = pyramid.tile_at(1, 0, 1)
         assert left is not None and right is not None
         tile_width = left.bbox.x_max - left.bbox.x_min
         frac = self._overlap_fraction(left.bbox.x_max, right.bbox.x_min, tile_width)
-        assert frac == pytest.approx(0.20, abs=1e-6)
+        assert frac == pytest.approx(0.50, abs=1e-6)
 
     def test_custom_overlap_fraction_respected(self) -> None:
-        """A custom overlap_fraction of 30% should produce ~30% tile overlap."""
-        config = TilingConfig(overlap_fraction=0.30)
+        """A custom overlap_fraction of 60% should produce ~60% tile overlap."""
+        config = TilingConfig(overlap_fraction=0.60)
         pyramid = TileGenerator(_make_image(), _make_metadata(), config).generate()
         left = pyramid.tile_at(1, 0, 0)
         right = pyramid.tile_at(1, 0, 1)
         assert left is not None and right is not None
         tile_width = left.bbox.x_max - left.bbox.x_min
         frac = self._overlap_fraction(left.bbox.x_max, right.bbox.x_min, tile_width)
-        assert frac == pytest.approx(0.30, abs=1e-6)
+        assert frac == pytest.approx(0.60, abs=1e-6)
 
 
 # ---------------------------------------------------------------------------

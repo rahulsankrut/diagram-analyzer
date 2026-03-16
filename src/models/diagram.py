@@ -37,6 +37,10 @@ class DiagramMetadata(BaseModel):
         traces: All resolved semantic connections between component pins.
         title_block: Structured drawing metadata from the title block, or
             ``None`` if no title block was found.
+        junctions: Classified line-intersection points from the CV pipeline.
+            Each entry has ``junction_type`` of ``"connected"`` (lines genuinely
+            meet) or ``"crossing"`` (lines pass through without connecting).
+            Crossings must NOT be interpreted as electrical/fluid connections.
     """
 
     diagram_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -55,6 +59,11 @@ class DiagramMetadata(BaseModel):
     text_labels: list[TextLabel] = Field(default_factory=list)
     traces: list[Trace] = Field(default_factory=list)
     title_block: TitleBlock | None = None
+    # Classified line-intersection points from CV pipeline.
+    # Each dict has keys: junction_id, bbox, junction_type ("connected"|"crossing"),
+    # confidence.  CROSSING junctions are pass-through — NOT electrical/fluid
+    # connections even though they share a spatial point on the diagram.
+    junctions: list[dict[str, Any]] = Field(default_factory=list)
 
     # ------------------------------------------------------------------
     # Query helpers

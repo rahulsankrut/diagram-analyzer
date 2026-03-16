@@ -606,33 +606,99 @@ function displayError(title, detail) {
 // ==========================================================================
 
 const TOOL_COLORS = {
-  get_overview: { bg: '#1e3a5f', border: '#457b9d', text: '#a8dadc' },
-  inspect_zone: { bg: '#2d1b4e', border: '#6c5ce7', text: '#a29bfe' },
-  inspect_component: { bg: '#4a2c17', border: '#e17055', text: '#fab1a0' },
-  search_text: { bg: '#0d3b3b', border: '#00cec9', text: '#81ecec' },
-  trace_net: { bg: '#3b1d3b', border: '#e84393', text: '#fd79a8' },
+  get_overview:       { bg: '#1e3a5f', border: '#457b9d', text: '#a8dadc' },
+  inspect_zone:       { bg: '#2d1b4e', border: '#6c5ce7', text: '#a29bfe' },
+  inspect_component:  { bg: '#4a2c17', border: '#e17055', text: '#fab1a0' },
+  search_text:        { bg: '#0d3b3b', border: '#00cec9', text: '#81ecec' },
+  trace_net:          { bg: '#3b1d3b', border: '#e84393', text: '#fd79a8' },
 };
 
 const TOOL_ICONS = {
   get_overview:
-    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
   inspect_zone:
-    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>',
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>',
   inspect_component:
-    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
   search_text:
-    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
   trace_net:
-    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
 };
 
 /**
- * Render the collapsible agent activity timeline.
+ * Return a human-readable label describing what the tool did.
+ */
+function toolActionLabel(toolName, args) {
+  switch (toolName) {
+    case 'get_overview':
+      return 'Fetched diagram dimensions, component inventory & title block';
+    case 'inspect_zone': {
+      const x1 = args.x1 ?? 0, y1 = args.y1 ?? 0;
+      const x2 = args.x2 ?? 100, y2 = args.y2 ?? 100;
+      const region = getRegionLabel(x1, y1, x2, y2);
+      return `Zoomed into ${region} region — retrieved SOM-annotated tiles`;
+    }
+    case 'inspect_component': {
+      const cid = args.component_id ?? args.label ?? args.index ?? '?';
+      return `Deep-dive crop on component [${cid}] with nearby context`;
+    }
+    case 'search_text': {
+      const q = args.query ?? args.text ?? args.search_query ?? '?';
+      return `Text search across all OCR labels: "${q}"`;
+    }
+    case 'trace_net': {
+      const cid = args.component_id ?? args.from_id ?? args.start ?? '?';
+      return `Traced electrical connections from component [${cid}]`;
+    }
+    default:
+      return `Called ${toolName}`;
+  }
+}
+
+/**
+ * Map (x1,y1,x2,y2) percentages to a region name like "top-left" or "central".
+ */
+function getRegionLabel(x1, y1, x2, y2) {
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+  const h = cx < 38 ? 'left' : cx > 62 ? 'right' : 'center';
+  const v = cy < 38 ? 'top' : cy > 62 ? 'bottom' : 'middle';
+  if (v === 'middle' && h === 'center') return 'central';
+  if (v === 'middle') return h;
+  if (h === 'center') return v;
+  return `${v}-${h}`;
+}
+
+/**
+ * Build a compact inline summary of the key args (excluding diagram_id).
+ */
+function toolArgsInline(toolName, args) {
+  if (!args) return '';
+  const filtered = Object.entries(args).filter(([k]) => k !== 'diagram_id');
+  if (!filtered.length) return '';
+
+  if (toolName === 'inspect_zone') {
+    const { x1 = 0, y1 = 0, x2 = 100, y2 = 100 } = args;
+    return `<span class="tool-arg-key">zone:</span> <span class="tool-arg-val">(${x1}%, ${y1}%) → (${x2}%, ${y2}%)</span>`;
+  }
+
+  return filtered
+    .map(([k, v]) =>
+      `<span class="tool-arg-key">${escapeHtml(k)}:</span> ` +
+      `<span class="tool-arg-val">${escapeHtml(String(v).substring(0, 80))}</span>`
+    )
+    .join(' <span class="tool-arg-sep">·</span> ');
+}
+
+/**
+ * Render the agent activity timeline.
  * @param {Array} toolCalls - List of tool call records from the API
  */
 function renderToolCalls(toolCalls) {
   const totalMs = toolCalls.reduce((s, tc) => s + (tc.duration_ms || 0), 0);
   const totalSec = (totalMs / 1000).toFixed(1);
+  const maxMs = Math.max(...toolCalls.map(tc => tc.duration_ms || 0), 1);
 
   let html = `
     <div class="tool-timeline-header" onclick="toggleToolTimeline()">
@@ -656,38 +722,52 @@ function renderToolCalls(toolCalls) {
   toolCalls.forEach((tc, i) => {
     const colors = TOOL_COLORS[tc.tool_name] || { bg: '#1c1e29', border: '#32364a', text: '#a4b0be' };
     const icon = TOOL_ICONS[tc.tool_name] || '';
-    const duration = tc.duration_ms ? (tc.duration_ms / 1000).toFixed(2) + 's' : '—';
+    const duration = tc.duration_ms != null
+      ? tc.duration_ms >= 1000
+        ? (tc.duration_ms / 1000).toFixed(1) + 's'
+        : Math.round(tc.duration_ms) + 'ms'
+      : '—';
+    const barPct = Math.round(((tc.duration_ms || 0) / maxMs) * 100);
     const successIco = tc.success
-      ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00b894" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
-      : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d63031" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+      ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00b894" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+      : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d63031" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
-    const argsHtml = tc.args
-      ? Object.entries(tc.args)
-        .filter(([k]) => k !== 'diagram_id')
-        .map(([k, v]) =>
-          `<span class="tool-arg-key">${escapeHtml(k)}:</span> ` +
-          `<span class="tool-arg-val">${escapeHtml(String(v).substring(0, 100))}</span>`
-        )
-        .join(' &nbsp;·&nbsp; ')
+    const actionLabel = toolActionLabel(tc.tool_name, tc.args || {});
+    const argsInline = toolArgsInline(tc.tool_name, tc.args);
+
+    // Split result_summary into chips (e.g. "3 tiles, 7 components, 2 labels")
+    const summaryChips = tc.result_summary
+      ? tc.result_summary.split(/[,;]/).map(s => s.trim()).filter(Boolean)
+          .map(s => `<span class="tool-result-chip">${escapeHtml(s)}</span>`).join('')
       : '';
 
     html += `
-      <div class="tool-call-card" style="border-left-color:${colors.border}; --tool-bg:${colors.bg};">
-        <div class="tool-call-main" onclick="toggleToolDetail(${i})">
+      <div class="tool-call-card" style="border-left-color:${colors.border}; --tool-bg:${colors.bg}; --tool-border:${colors.border};">
+        <!-- Header row: step · icon · name · duration · status -->
+        <div class="tool-call-main">
+          <span class="tool-step-badge" style="background:${colors.border}20; color:${colors.text}; border-color:${colors.border}40;">${i + 1}</span>
           <div class="tool-call-icon" style="color:${colors.text}">${icon}</div>
           <div class="tool-call-info">
             <span class="tool-call-name" style="color:${colors.text}">${escapeHtml(tc.tool_name)}</span>
-            ${tc.result_summary
-        ? `<span class="tool-call-summary">${escapeHtml(tc.result_summary)}</span>`
-        : ''}
           </div>
           <div class="tool-call-badges">
             <span class="tool-duration-badge">${duration}</span>
             <span class="tool-status-icon">${successIco}</span>
           </div>
         </div>
-        <div class="tool-call-detail hidden" id="tool-detail-${i}">
-          ${argsHtml ? `<div class="tool-call-args">${argsHtml}</div>` : ''}
+
+        <!-- Action description -->
+        <div class="tool-action-label">${escapeHtml(actionLabel)}</div>
+
+        <!-- Timing proportion bar -->
+        <div class="tool-timing-bar-wrap">
+          <div class="tool-timing-bar-fill" style="width:${barPct}%; background:${colors.border};"></div>
+        </div>
+
+        <!-- Args + result chips row -->
+        <div class="tool-details-row">
+          ${argsInline ? `<div class="tool-call-args">${argsInline}</div>` : ''}
+          ${summaryChips ? `<div class="tool-result-chips">${summaryChips}</div>` : ''}
           ${tc.error ? `<div class="tool-call-error">${escapeHtml(tc.error)}</div>` : ''}
         </div>
       </div>
@@ -706,11 +786,6 @@ function toggleToolTimeline() {
     body.classList.toggle('collapsed');
     chevron.classList.toggle('rotated');
   }
-}
-
-function toggleToolDetail(index) {
-  const el = document.getElementById(`tool-detail-${index}`);
-  if (el) el.classList.toggle('hidden');
 }
 
 // ==========================================================================
