@@ -380,7 +380,12 @@ agent tool — called by the server's `GET /visualization/{diagram_id}` endpoint
 - **Components tab:** Searchable element list with confidence colour-coding
   (green ≥ 80%, yellow 50–79%, red < 50%) and type filter chips
 - **Graph tab:** Mermaid.js diagram with graceful fallback:
-  - When trace data exists → directed `graph LR` connectivity diagram with pin labels
+  - When trace data exists → directed `graph LR` connectivity diagram with pin labels.
+    Node identifiers use component UUIDs (`from_id` / `to_id`) — not display labels —
+    so two components with the same value (e.g. two "10K" resistors) remain distinct
+    nodes in the graph. `_mermaid_safe()` sanitizes IDs to valid Mermaid identifiers
+    (spaces/hyphens → `_`, leading digits prefixed with `n`). `_mermaid_display()`
+    produces separate truncated display labels.
   - When no traces but components detected → component topology graph, nodes
     grouped by type in subgraphs; an info banner notes that edges are not shown
     because no electrical trace data is available (no connections fabricated)

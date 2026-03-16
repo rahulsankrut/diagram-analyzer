@@ -77,6 +77,8 @@ GEMINI_MODEL=gemini-3.1-pro-preview-customtools        # tuned for custom tool c
 GOOGLE_GENAI_USE_VERTEXAI=1
 ```
 
+> **Accepted upload formats:** PNG, JPEG, TIFF, WebP — all normalised to RGB internally. No special export needed from CAD tools.
+
 > **Offline / No credentials?** The server falls back to no-op OCR/CV stubs. The agent still works via visual analysis but without structured data from OCR.
 
 ---
@@ -84,12 +86,12 @@ GOOGLE_GENAI_USE_VERTEXAI=1
 ## Architecture Overview
 
 ```
-User Upload (PNG / JPEG / TIFF)
+User Upload (PNG / JPEG / TIFF / WebP)
          │
          ▼
   ┌──────────────────────────────────────────────────────────────────┐
   │ Phase 1: Ingest                                                    │
-  │   Orchestrator.ingest() → decode to PIL Image, assign UUID        │
+  │   Orchestrator.ingest() → decode to PIL Image (any format), UUID  │
   └────────────────────────────┬─────────────────────────────────────┘
                                │
                                ▼
@@ -129,7 +131,7 @@ The fundamental constraint: Gemini processes images at ~1024×1024 px internally
 | L1 | 2×2  | 4     | Quadrant-level detail |
 | L2 | 4×4  | 16    | Component-level detail |
 
-Tiles at each level overlap by **20%** to ensure no component is split at a boundary.
+Tiles at each level overlap by **50%** to ensure no component is split at a boundary (per Stürmer et al. 2024 — symbol fragmentation below 50% overlap costs >10 mAP points).
 
 ### Why Set-of-Marks (SOM)?
 
@@ -186,6 +188,21 @@ The `tool_calls` array lets you see exactly which tools the agent called, with t
 | `inspect_component` | Single component deep-dive | Detailed component info |
 | `search_text` | OCR text search | Find by label/value |
 | `trace_net` | Follow connections from a pin | Netlist tracing |
+
+---
+
+## Web UI
+
+The frontend at `http://localhost:8080` provides a full interactive experience:
+
+- **Accepted formats:** PNG, JPEG, TIFF, WebP (drag-and-drop or click to browse)
+- **4-phase pipeline display:** Upload → Preprocess → Tile → Agent — each phase shows live status, timing, and sub-step messages
+- **Split workspace:** after analysis completes the diagram stays pinned on the left while results appear on the right — no more losing sight of the image as you scroll
+- **Conversation thread:** each Q&A pair is rendered as a chat bubble thread; ask follow-up questions without re-uploading
+  - Follow-up queries reuse the cached `diagram_id` — Phases 1 and 2 are skipped
+  - Immediate "Thinking…" placeholder appears as soon as you submit; replaced by the real answer when it arrives
+- **Agent Activity timeline:** collapsible per-tool cards showing tool name, arguments, duration, and result summary — the full reasoning trail for every response
+- **Visualization link:** after ingest, a link to the interactive HTML visualization (`GET /visualization/{id}`) is shown in the results
 
 ---
 
@@ -252,9 +269,9 @@ cad-diagram-analyzer/
 │   │   └── tile_storage.py       # LocalStorage (dev) / GCS (prod)
 │   └── orchestrator.py           # Ingest → preprocess → tile pipeline
 ├── frontend/
-│   ├── index.html                # 4-phase pipeline UI
-│   ├── css/styles.css
-│   └── js/app.js
+│   ├── index.html                # Web UI: upload, 4-phase pipeline, split workspace, conversation
+│   ├── css/styles.css            # Dark theme, workspace layout, chat thread styles
+│   └── js/app.js                 # Upload flow, follow-up conversation, pipeline state
 ├── tests/
 │   ├── test_agent/               # ADK agent + callback tests (all mocked)
 │   ├── test_tools/               # Tool function tests

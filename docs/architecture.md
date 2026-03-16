@@ -14,7 +14,8 @@ This document explains both the **theory** behind key design decisions and the *
 6. [Phase 3: Multi-Resolution Tiling](#phase-3-multi-resolution-tiling)
 7. [Phase 4: Agentic Reasoning (ADK + Gemini)](#phase-4-agentic-reasoning)
 8. [Phase 5: Output & Visualization](#phase-5-output--visualization)
-9. [Cross-Cutting Concerns](#cross-cutting-concerns)
+9. [Web UI Frontend](#web-ui-frontend)
+10. [Cross-Cutting Concerns](#cross-cutting-concerns)
 10. [Storage Architecture](#storage-architecture)
 11. [Token Budget Management](#token-budget-management)
 
@@ -508,6 +509,80 @@ The visualization is a **self-contained HTML file** (no server needed after down
       grouped by type in Mermaid subgraphs; no edges; info banner shown
     - `mode = ""` — no data → empty-state message
   - **Details:** Component detail panel shown on click: type, value, confidence, bbox, pin count.
+
+#### Mermaid Node ID Sanitization
+
+The Graph tab uses Mermaid.js, which has strict node ID constraints: no spaces, no leading digits, no special characters. Real component data commonly violates all three (e.g. "NPN Transistor", "2N3904", "10K"). The `_mermaid_safe()` / `_mermaid_display()` helper pair separates identifier concerns from display concerns:
+
+```python
+def _mermaid_safe(raw: str) -> str:
+    """Produce a valid Mermaid node identifier (alphanumeric + underscore, no leading digit)."""
+    safe = re.sub(r"[^a-zA-Z0-9_]", "_", raw.replace("-", "_").replace(" ", "_"))
+    safe = re.sub(r"_+", "_", safe).strip("_")
+    if safe and safe[0].isdigit():
+        safe = "n" + safe
+    return safe or "unknown"
+
+def _mermaid_display(text: str) -> str:
+    """Produce a display label (truncated, quotes escaped)."""
+    return text.replace('"', "'")[:30]
+```
+
+Connectivity traces use component UUIDs (not display labels) as Mermaid node identifiers (`from_id` / `to_id` fields), so two resistors both labeled "10K" remain separate nodes in the graph rather than collapsing into one.
+
+### Web UI Frontend
+
+**Code:** `frontend/index.html`, `frontend/css/styles.css`, `frontend/js/app.js`
+
+The web UI at `GET /` provides a single-page application covering the full user workflow.
+
+#### Upload & Pipeline Phases
+
+The 4-phase pipeline is visualised as a horizontal progress bar: **Upload → Preprocess → AI Analysis → Results**. Each phase shows:
+- A spinner while active
+- A green checkmark + elapsed time badge on completion
+- Sub-step messages (e.g. "Extracting text labels…", "Building tile pyramid…")
+
+Accepted upload formats: **PNG, JPEG, TIFF, WebP** — validated client-side by MIME type and file extension before the upload is sent to the server.
+
+#### Split Workspace Layout
+
+After the first analysis completes, the UI activates a **split workspace** via a CSS grid:
+
+```css
+#workspace.workspace-active {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) minmax(340px, 1.15fr);
+}
+```
+
+The diagram image is pinned in the left panel (sticky, `fitImage()` scales it to viewport height) while the chat thread and results appear in the right panel. The image remains visible throughout all follow-up questions — no more losing the diagram when scrolling through answers.
+
+#### Conversation Thread
+
+Each Q&A exchange is rendered as a `.conv-turn` block appended to `#chat-history`:
+- User question: right-aligned bubble (`.conv-question-bubble`)
+- Agent answer: full-width block below (`.conv-answer`) with the Agent Activity timeline
+
+A `.thinking-placeholder` with a spinner is inserted **immediately on submit** (before the server responds) so the UI feels responsive. When the response arrives, `updateConversationTurn()` replaces the placeholder in-place.
+
+#### Follow-up Request Flow
+
+```
+User types follow-up → appendConversationTurnPlaceholder()
+        │
+        ▼
+runAnalysis(queryText, isFollowup=true)
+        │
+        ├── Phases 1+2 shown as "skipped" (diagram already ingested)
+        ├── POST /analyze  {diagram_id: currentDiagramId, query: queryText}
+        │
+        ▼
+updateConversationTurn(turnId, responseData)
+        └── Replaces placeholder with real answer + tool timeline
+```
+
+Follow-up queries skip the ingest pipeline entirely — they call `POST /analyze` with the cached `diagram_id`. Only Phase 3 (tiling) and Phase 4 (agent) indicators update; Phases 1 and 2 display a "skipped" badge.
 
 ---
 

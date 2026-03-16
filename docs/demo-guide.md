@@ -47,6 +47,8 @@ Multi-Resolution Tiling) in the header.
 | P&ID (piping & instrumentation) | Dense symbol detection, zone inspection |
 | Any multi-page engineering drawing | Title block extraction, spatial reasoning |
 
+Accepted formats: **PNG, JPEG, TIFF, WebP** — export from any CAD tool, no special format required.
+
 > **Tip:** Run a "warm-up" query 5 minutes before the demo starts. The first
 > call to Vertex AI can take 3–5 seconds to cold-start. Subsequent calls are
 > fast.
@@ -99,7 +101,7 @@ Then open the app.
 
 **What to do:**
 
-1. Drag-and-drop (or click to select) your CAD diagram into the upload area.
+1. Drag-and-drop (or click to select) your CAD diagram into the upload area (PNG, JPEG, TIFF, or WebP).
 2. Point out the **4-phase pipeline** that appears immediately:
 
 ```
@@ -111,7 +113,9 @@ Then open the app.
 
 **Key message:**
 The pipeline makes the system transparent. The audience can see where their
-data is at every moment.
+data is at every moment. Once the analysis is complete, notice that **the diagram
+stays visible on the left** — you're in a split-screen workspace, so you never
+lose sight of the image as you read the answer.
 
 ---
 
@@ -169,6 +173,12 @@ non-technical demos:
 
 When the fourth phase turns green and the result appears:
 
+**Point out the split workspace:**
+
+> *"Notice the diagram is still here on the left — it doesn't disappear after
+> upload. As you read the agent's answer on the right, you can look directly
+> at the relevant part of the diagram."*
+
 **Point out the Agent Activity section** (collapsible timeline of tool calls):
 
 > *"See this section — Agent Activity? This shows every tool the AI used to
@@ -182,6 +192,25 @@ makes (e.g., "In the upper-left quadrant, component R47...").
 
 > *"The agent isn't guessing. It's telling us exactly where on the diagram it
 > found this information."*
+
+### Act 5 — Follow-up Questions (3 min)
+
+After the first answer, type a follow-up in the text box at the bottom:
+
+```
+Now zoom into the upper-right corner and describe what you find there.
+```
+
+> *"Notice that the diagram doesn't re-upload. The system already knows this
+> diagram — we just ask a new question and get a new answer, just like a chat
+> conversation.*
+>
+> *The full history of questions and answers stays visible so you can scroll
+> back and compare."*
+
+**Key message:**
+The conversation thread means stakeholders can keep probing the diagram
+without starting over. Each question builds on the shared context.
 
 ---
 
@@ -255,35 +284,50 @@ Tile pyramid     ──┘    (components,          │
 POST /ingest (image upload)
         │
         ▼
-orchestrator.py ──► run concurrently:
-        ├── Document AI OCR  →  TextLabel[]  (bbox, confidence, text)
-        └── OpenCV CV        →  Component[]  (type, bbox, confidence)
+orchestrator.py ──► sequential pipeline:
+        ├── 1. Document AI OCR  →  TextLabel[]  (bbox, confidence, text)
+        └── 2. OpenCV CV        →  Component[]  (type, bbox, confidence)
+               (OCR text regions masked before CV runs — prevents character
+                strokes from registering as false component contours)
         │
         ▼
 TileGenerator (tiling/)
         ├── Level 0: 1×1  (full image, 512px)
-        ├── Level 1: 2×2  (4 tiles, 20% overlap)
-        └── Level 2: 4×4  (16 tiles, 20% overlap)
+        ├── Level 1: 2×2  (4 tiles, 50% overlap)
+        └── Level 2: 4×4  (16 tiles, 50% overlap)
         │
         ▼
 DiagramStore.save(DiagramMetadata)
         └── Returns diagram_id (UUID)
 ```
 
-**Key design decision — 20% tile overlap:**
+**Key design decision — 50% tile overlap:**
 
-> *"Tiles at each level overlap by 20% of the tile width. This prevents
-> components that straddle tile boundaries from being split across two tiles,
-> which would make them invisible to both. The formula is simple:*
+> *"Tiles at each level overlap by 50% of the tile width — raised from 20%
+> based on Stürmer et al. (arXiv:2411.13929), which measured that symbol
+> fragmentation at boundaries costs >10 mAP points at any overlap below 50%.
+> The formula:*
 
 ```python
 # tiling/tile_generator.py
-stride_x = tile_w * (1 - overlap)   # 0.80 × tile_w
-stride_y = tile_h * (1 - overlap)
+DEFAULT_OVERLAP = 0.50
+tile_width = 1.0 / (1.0 + (n - 1) * (1.0 - overlap))
+step = tile_width * (1.0 - overlap)
 ```
 
 > *21 tiles total at 512×512 px. At ~60K tokens per JPEG tile, we cap
 > inspect_zone at 3 tiles per call to stay within the 1M token context limit."*
+
+**Key design decision — OCR before CV (sequential, not concurrent):**
+
+> *"Earlier versions ran OCR and CV concurrently with asyncio.gather. We
+> changed this because text strokes are the dominant source of false-positive
+> CV detections — character strokes look like closed contours (false components)
+> and short line segments (spurious traces). Now OCR runs first, we paint every
+> OCR bounding box white on the grayscale image, then CV runs on the masked
+> image. This eliminates a whole class of false positives. The latency hit is
+> negligible since CV adds <1s to a pipeline already dominated by the 2–4s OCR
+> API roundtrip."*
 
 #### The Agent
 
@@ -374,6 +418,20 @@ Find resistor R47, inspect it in detail, and tell me what it connects to.
 **What to watch:** This triggers the full 5-tool workflow:
 `get_overview` → `search_text("R47")` → `inspect_component(sym_xxx)` →
 `trace_net(sym_xxx, "")`. Show the tool timeline with per-call durations.
+
+#### Query 5 — Follow-up (conversation thread)
+After query 4 completes, type in the follow-up box:
+```
+Are there any other resistors nearby with similar values? Check the same area.
+```
+**What to watch:** Phases 1+2 are skipped entirely (shown as "skipped" badges).
+The agent re-uses the cached `diagram_id`. The new Q+A pair is appended below
+the previous one. The diagram stays pinned in the left panel throughout.
+
+> *"This is the key UX improvement: the context is preserved. The agent knows
+> what diagram we're talking about and can answer follow-ups without starting
+> over. For a demo with stakeholders, you can let them ask freeform questions
+> one by one — just like they'd ask a colleague."*
 
 ---
 
@@ -570,7 +628,11 @@ Are there any unconnected nets in this diagram?
 | Gemini 429 error | Rate limit hit; wait 10s (retry logic will handle it automatically up to 3×). |
 | Visualization page blank | Check browser console; `diagram_id` in URL may be wrong. |
 | Tool call timeline not appearing | Backend returned no `tool_calls`; check server logs for agent errors. |
+| WebP upload rejected | Confirm the file has a `.webp` extension; some browsers rename WebP exports as `.jpg`. |
+| Follow-up box not visible | Only appears after the first successful analysis. Complete Phase 4 first. |
+| Follow-up gives "diagram not found" | Server was restarted — `diagram_id` was in-memory and lost. Re-upload the diagram. |
+| Image panel blank after upload | Confirm the file is a valid image (not a PDF or SVG); check browser console for load errors. |
 
 ---
 
-*Guide last updated: 2026-03-15*
+*Guide last updated: 2026-03-16*
