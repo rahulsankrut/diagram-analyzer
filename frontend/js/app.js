@@ -383,6 +383,8 @@ async function runAnalysis(queryText, isFollowup = false) {
 
   const phaseTimers = {};
 
+  let turnEl = null;
+
   try {
     if (!isFollowup) {
       // ---- PHASE 1: Upload ----
@@ -424,6 +426,12 @@ async function runAnalysis(queryText, isFollowup = false) {
       setPhase(phasePreprocess, 'skipped');
       setSubText('preprocess', 'Reusing data');
       fillConnector(conn23);
+
+      // Append placeholder immediately
+      turnEl = appendConversationTurnPlaceholder(queryText);
+      followupQuery.value = '';
+      followupQuery.style.height = '';
+      scrollToBottom();
     }
 
     // ---- PHASE 3: AI Analysis ----
@@ -451,19 +459,23 @@ async function runAnalysis(queryText, isFollowup = false) {
     pipelineLiveBadge.classList.add('hidden');
     pipelineCompleteBadge.classList.remove('hidden');
 
-    // Append Q+A turn to conversation history
-    appendConversationTurn(queryText, currentDiagramId, result.text, result.toolCalls);
-
-    // Show follow-up input
-    followupSection.classList.remove('hidden');
-    followupQuery.value = '';
-    followupQuery.style.height = '';
-
-    // Scroll to latest turn
-    setTimeout(() => {
-      const lastTurn = chatHistory.lastElementChild;
-      if (lastTurn) lastTurn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 140);
+    if (isFollowup) {
+      updateConversationTurn(turnEl, result.text, result.toolCalls, currentDiagramId);
+    } else {
+      // Append Q+A turn to conversation history
+      appendConversationTurn(queryText, currentDiagramId, result.text, result.toolCalls);
+      
+      // Show follow-up input (if hidden)
+      followupSection.classList.remove('hidden');
+      followupQuery.value = '';
+      followupQuery.style.height = '';
+      
+      // Scroll to latest turn
+      setTimeout(() => {
+        const lastTurn = chatHistory.lastElementChild;
+        if (lastTurn) lastTurn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 140);
+    }
 
   } catch (err) {
     console.error('Analysis pipeline failed:', err);
@@ -480,8 +492,12 @@ async function runAnalysis(queryText, isFollowup = false) {
       }
     });
 
-    appendErrorTurn(queryText, err.message || 'An unexpected error occurred.');
-    followupSection.classList.remove('hidden');
+    if (isFollowup && turnEl) {
+      updateConversationTurnError(turnEl, err.message || 'An unexpected error occurred.');
+    } else {
+      appendErrorTurn(queryText, err.message || 'An unexpected error occurred.');
+      followupSection.classList.remove('hidden');
+    }
 
   } finally {
     isRunning = false;
@@ -520,7 +536,6 @@ function appendConversationTurn(question, diagramId, text, toolCalls) {
 
   const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  // User question bubble
   const questionHtml = `
     <div class="conv-question">
       <div class="conv-q-inner">
@@ -529,22 +544,102 @@ function appendConversationTurn(question, diagramId, text, toolCalls) {
       </div>
     </div>`;
 
-  // Agent answer: meta badges + tool timeline + markdown response
-  const metaHtml    = buildResultMetaHtml(diagramId);
-  const toolHtml    = toolCalls && toolCalls.length > 0
-    ? `<div class="tool-timeline conv-tool-timeline">${buildToolCallsHtml(toolCalls)}</div>`
-    : '';
   const answerHtml = `
     <div class="conv-answer">
-      <div class="result-meta">${metaHtml}</div>
-      ${toolHtml}
-      <div class="result-content markdown-body glass-panel-inner conv-answer-text">
-        ${formatMarkdown(text)}
+      ${buildAnswerInnerHtml(text, toolCalls, diagramId)}
+    </div>`;
+
+  turn.innerHTML = questionHtml + answerHtml;
+  chatHistory.appendChild(turn);
+}
+
+function appendConversationTurnPlaceholder(question) {
+  const turn = document.createElement('div');
+  turn.className = 'conv-turn';
+
+  const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const questionHtml = `
+    <div class="conv-question">
+      <div class="conv-q-inner">
+        <div class="conv-question-bubble">${escapeHtml(question)}</div>
+        <div class="conv-question-meta">${timestamp}</div>
+      </div>
+    </div>`;
+
+  const answerHtml = `
+    <div class="conv-answer">
+      <div class="result-content glass-panel-inner conv-answer-text">
+        <div class="thinking-placeholder">
+          <div class="thinking-spinner"></div>
+          <span>Thinking...</span>
+        </div>
       </div>
     </div>`;
 
   turn.innerHTML = questionHtml + answerHtml;
   chatHistory.appendChild(turn);
+  
+  // Add to history (incomplete)
+  conversationHistory.push({ question, text: null, toolCalls: [] });
+
+  return turn;
+}
+
+function updateConversationTurn(turnEl, text, toolCalls, diagramId) {
+  // Update state
+  const lastTurn = conversationHistory[conversationHistory.length - 1];
+  if (lastTurn) { // Assuming it's the right one
+    lastTurn.text = text;
+    lastTurn.toolCalls = toolCalls;
+  }
+
+  const answerEl = turnEl.querySelector('.conv-answer');
+  if (!answerEl) return;
+
+  answerEl.innerHTML = buildAnswerInnerHtml(text, toolCalls, diagramId);
+  scrollToBottom();
+}
+
+function updateConversationTurnError(turnEl, detail) {
+  // Update state
+  const lastTurn = conversationHistory[conversationHistory.length - 1];
+  if (lastTurn) {
+    lastTurn.error = detail;
+  }
+
+  const answerEl = turnEl.querySelector('.conv-answer');
+  if (!answerEl) return;
+
+  answerEl.innerHTML = `
+    <div class="result-meta">
+      <span class="badge error">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+        </svg>
+        Analysis Failed
+      </span>
+    </div>
+    <div class="result-content glass-panel-inner" style="color:var(--error); font-size:0.9rem;">
+      ${escapeHtml(detail)}
+    </div>`;
+  
+  scrollToBottom();
+}
+
+function buildAnswerInnerHtml(text, toolCalls, diagramId) {
+  const metaHtml = buildResultMetaHtml(diagramId);
+  const toolHtml = toolCalls && toolCalls.length > 0
+    ? `<div class="tool-timeline conv-tool-timeline">${buildToolCallsHtml(toolCalls)}</div>`
+    : '';
+  return `
+    <div class="result-meta">${metaHtml}</div>
+    ${toolHtml}
+    <div class="result-content markdown-body glass-panel-inner conv-answer-text">
+      ${formatMarkdown(text)}
+    </div>`;
 }
 
 /**
@@ -581,6 +676,12 @@ function appendErrorTurn(question, detail) {
     </div>`;
 
   chatHistory.appendChild(turn);
+}
+
+function scrollToBottom() {
+  setTimeout(() => {
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }, 50); // Small timeout to allow DOM updates
 }
 
 /**

@@ -482,6 +482,11 @@ textarea#query:focus {
 #results-card {
   margin-top: 24px;
   border-top: 3px solid var(--accent);
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 40px);
+  position: sticky;
+  top: 20px;
 }
 
 .results-header {
@@ -1313,7 +1318,7 @@ textarea#query:focus {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(340px, 1.15fr);
   gap: 20px;
-  align-items: start;
+  align-items: stretch;
 }
 
 /* Left panel: sticky image viewer */
@@ -1369,6 +1374,8 @@ textarea#query:focus {
   display: flex;
   flex-direction: column;
   gap: 0;
+  flex: 1;
+  overflow-y: auto;
 }
 
 /* Individual turn: one question + one answer */
@@ -1543,4 +1550,26 @@ textarea#query:focus {
   font-size: 0.68rem;
   font-family: var(--font-mono);
   color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Thinking Placeholder
+   ========================================================================== */
+.thinking-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.95rem;
+}
+
+.thinking-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s cubic-bezier(0.6, 0.2, 0.4, 0.8) infinite;
+  flex-shrink: 0;
 }
