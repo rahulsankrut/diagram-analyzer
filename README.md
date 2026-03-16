@@ -1,6 +1,6 @@
 # CAD Diagram Analyzer
 
-> **AI-powered analysis of electrical schematics, P&IDs, and mechanical drawings** — powered by Google Gemini 2.5, Google Agent Development Kit (ADK), Document AI OCR, and OpenCV.
+> **AI-powered analysis of electrical schematics, P&IDs, and mechanical drawings** — powered by Google Gemini 3.1 pro, Google Agent Development Kit (ADK), Document AI OCR, and OpenCV.
 
 ---
 
