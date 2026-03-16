@@ -1,20 +1,50 @@
 # Tool Specifications
 
-This document describes the five agent tools available to the ADK `LlmAgent`.
-All tools are synchronous Python functions that return JSON-serializable `dict`
-values. They are defined in `src/tools/` and registered in
-`src/agent/cad_agent.py`.
+This document describes the five agent tools available to the ADK `LlmAgent`. Each entry covers both the **API contract** (arguments, returns, error cases) and the **theory** behind key design choices.
+
+All tools are synchronous Python functions that return JSON-serializable `dict` values. They are defined in `src/tools/` and registered in `src/agent/cad_agent.py`.
+
+## Architecture: How Tools Connect to Data
+
+```
+LLM (Gemini) calls tool with JSON args (e.g. {"diagram_id": "abc", "query": "R47"})
+         │
+         ▼
+Tool function (e.g. search_text.py)
+         │
+         ├── get_store()  ←  DiagramStore singleton (injected via configure_store())
+         │        │
+         │        ├── store.get_metadata(diagram_id)  →  DiagramMetadata
+         │        ├── store.get_pyramid(diagram_id)    →  TilePyramid
+         │        └── store.load_tile_image(tile_id)   →  PIL.Image
+         │
+         └── Returns dict[str, Any]  →  JSON-serialised → LLM sees as FunctionResponse
+```
+
+The `diagram_id` string is the only connection between the LLM's stateless world and the rich structured data held by the server. Tools use it as a key to look up everything from `DiagramMetadata` (component list, text labels, traces) to the tile pyramid images.
 
 ## Design Principles
 
-- **JSON-only arguments** — all parameters are `str`, `int`, or `float` (Gemini
-  function calling requirement)
-- **JSON-serializable returns** — every tool returns `dict[str, Any]`; no custom
-  Pydantic models in return values
-- **Error handling** — tools return `{"error": "..."}` instead of raising
-  exceptions; the agent interprets errors and retries or explains
-- **Token-aware** — each tool caps its output to prevent exceeding Gemini's
-  context window (see limits below)
+- **JSON-only arguments** — all parameters are `str`, `int`, or `float`. This is a hard Gemini function-calling requirement: the LLM can only pass JSON primitive types as tool arguments. Complex types (PIL Images, Pydantic models) are retrieved by the tool via `get_store()` using the `diagram_id` key.
+- **JSON-serializable returns** — every tool returns `dict[str, Any]`; no Pydantic models in return values. Pydantic's `.model_dump(mode="json")` (a.k.a. `.to_dict()`) is used where needed.
+- **Error handling** — tools return `{"error": "..."}` instead of raising exceptions. The LLM sees the error as a FunctionResponse and can retry with corrected arguments or explain the problem to the user. Exceptions would crash the tool call and terminate the agent run.
+- **Token-aware** — each tool caps its output. Large tool responses cost tokens (a 512 px JPEG tile ≈ 60K tokens). Caps are enforced in the tool code, not the LLM prompt. See limits per tool below.
+- **Graceful fallback** — when data is absent or incomplete, tools return `data_unavailable: true` plus a human-readable message directing the agent to alternative tools. They never return empty responses without explanation.
+- **Singleton store access** — tools call `get_store()` to access `DiagramMetadata`. Tests inject a mock store via `configure_store(mock)` before running tool tests (see `tests/test_tools/conftest.py`).
+
+## Agent Workflow: Recommended Tool Call Sequence
+
+The agent's system prompt encodes this recommended workflow:
+
+```
+1. get_overview(diagram_id)           → understand scope, counts, title block
+2. inspect_zone(diagram_id, x1,y1,x2,y2)  → zoom into regions of interest, read SOM markers
+3. inspect_component(diagram_id, component_id)  → deep-dive on specific components
+4. search_text(diagram_id, query)     → look up labels / reference designators by text
+5. trace_net(diagram_id, comp_id, pin)  → verify connections structurally
+```
+
+The agent is not required to call all tools — it selects based on the user's query. `get_overview` is always called first to orient itself.
 
 ---
 
@@ -370,5 +400,85 @@ self._agent = LlmAgent(
 )
 ```
 
-Tool callbacks (`src/agent/callbacks.py`) provide logging and timing for each
-tool invocation.
+---
+
+## Tool Callbacks & ToolCallTracker
+
+**Code:** `src/agent/callbacks.py`
+
+ADK supports two lifecycle callbacks on every tool call:
+
+### `before_tool(tool, args, tool_context) -> dict | None`
+
+Called before the tool function executes. Returns:
+- `None` → proceed with the call normally
+- `dict` → short-circuit: the dict is used as the tool result (the actual function is NOT called)
+
+Used for:
+1. **Argument validation** — if `diagram_id` is missing or empty, returns `{"error": "diagram_id is required"}` immediately
+2. **Timing start** — calls `tracker.record_start(tool_name, args)`
+3. **Logging** — logs the tool name and argument keys at DEBUG level
+
+```python
+def before_tool(tool, args, tool_context) -> dict | None:
+    tool_name = getattr(tool, "name", str(tool))
+
+    if tool_name in _DIAGRAM_TOOLS:
+        diagram_id = args.get("diagram_id", "")
+        if not diagram_id or not isinstance(diagram_id, str):
+            return {"error": "diagram_id is required and must be a non-empty string."}
+
+    tracker.record_start(tool_name, dict(args))
+    return None   # proceed normally
+```
+
+### `after_tool(tool, args, tool_context, tool_response) -> dict | None`
+
+Called after the tool function returns. Returns:
+- `None` → pass `tool_response` unchanged to the LLM
+- `dict` → override the tool response with this dict
+
+Used for:
+1. **Timing end** — calls `tracker.record_end(tool_name, success=..., result_summary=...)`
+2. **Error logging** — logs errors at WARNING level when `"error"` key present in response
+3. **Result summarisation** — `_summarise_result()` generates a one-line summary per tool type
+
+### ToolCallTracker
+
+A module-level singleton accumulating per-tool records across a single `analyze_async()` run. After the agent completes, `tracker.get_records()` returns:
+
+```json
+[
+  {
+    "tool_name": "get_overview",
+    "args": {"diagram_id": "550e8400-..."},
+    "duration_ms": 142.3,
+    "success": true,
+    "result_summary": "42 components, 230 text labels",
+    "error": null
+  },
+  {
+    "tool_name": "inspect_zone",
+    "args": {"x1": 0, "y1": 0, "x2": 50, "y2": 50},
+    "duration_ms": 2341.0,
+    "success": true,
+    "result_summary": "3 tiles, 12 components, 45 labels",
+    "error": null
+  }
+]
+```
+
+This list is included in the `/analyze` response as `tool_calls` and rendered by the frontend as the "Agent Activity" collapsible timeline.
+
+The `_sanitize_args()` helper strips large string values (> 200 characters) before recording them, preventing base64 image data from bloating the tracker records.
+
+---
+
+## Adding a New Tool
+
+1. Create `src/tools/my_new_tool.py` with a function `def my_new_tool(diagram_id: str, ...) -> dict[str, Any]`
+2. Add the function to the `self._tools` list in `src/agent/cad_agent.py`
+3. Add `"my_new_tool"` to `_DIAGRAM_TOOLS` in `callbacks.py` if it takes `diagram_id`
+4. Add a `case "my_new_tool"` branch in `_summarise_result()` for the Activity timeline
+5. Add tests in `tests/test_tools/test_my_new_tool.py` using the `configured_store` fixture
+6. Update the system prompt in `src/agent/prompts.py` to describe when to call the new tool

@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="AI-powered CAD Diagram Analyzer for electrical schematics and P&IDs." />
   <title>CAD Diagram Analyzer</title>
-  
+
   <!-- Modern Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
   <!-- CSS Styles -->
   <link rel="stylesheet" href="css/styles.css" />
 </head>
@@ -19,6 +19,7 @@
   <!-- Decorative background elements -->
   <div class="bg-blur shape1"></div>
   <div class="bg-blur shape2"></div>
+  <div class="bg-blur shape3"></div>
 
   <main class="container">
     <header>
@@ -33,11 +34,18 @@
         <h1>CAD Diagram Analyzer</h1>
       </div>
       <p>Upload an electrical schematic or P&amp;ID and interactively query the intelligent agent about elements.</p>
+      <div class="tech-pills">
+        <span class="tech-pill"><span class="pill-dot dot-blue"></span>Google ADK</span>
+        <span class="tech-pill"><span class="pill-dot dot-purple"></span>Gemini 2.5</span>
+        <span class="tech-pill"><span class="pill-dot dot-teal"></span>Document AI OCR</span>
+        <span class="tech-pill"><span class="pill-dot dot-orange"></span>OpenCV</span>
+        <span class="tech-pill"><span class="pill-dot dot-green"></span>Multi-Resolution Tiling</span>
+      </div>
     </header>
 
     <!-- Main interaction area -->
     <div class="card glass-panel" id="interaction-card">
-      
+
       <!-- Drop zone -->
       <div id="drop-zone" class="drop-zone glass-panel-inner">
         <input type="file" id="file-input" accept="image/*,.tif,.tiff" aria-label="Upload CAD diagram image" />
@@ -48,7 +56,7 @@
             <line x1="12" y1="3" x2="12" y2="15"></line>
           </svg>
         </div>
-        <div class="drop-label">Drag & drop your diagram here</div>
+        <div class="drop-label">Drag &amp; drop your diagram here</div>
         <div class="drop-hint">or click to browse native files</div>
         <div class="drop-extensions">Supported formats: PNG, JPEG, TIFF</div>
       </div>
@@ -81,44 +89,153 @@
 
         <div id="status" class="status-indicator hidden">
           <div class="modern-spinner"></div>
-          <span id="status-text">Uploading and processing...</span>
+          <span id="status-text">Processing...</span>
         </div>
       </div>
     </div> <!-- /card -->
 
     <!-- Results Section -->
     <div id="results-card" class="card glass-panel hidden">
+
+      <!-- Results Header -->
       <div class="results-header">
-        <h2 class="section-label m-0">Analysis Results</h2>
-        
-        <div class="step-indicator">
-          <div class="step" id="step-ingest">
-            <div class="step-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            </div>
-            Ingested
+        <div class="results-title-wrap">
+          <h2 class="section-label m-0">Analysis Pipeline</h2>
+          <div id="pipeline-live-badge" class="pipeline-live-badge hidden">
+            <div class="live-dot"></div>
+            <span>Live</span>
           </div>
-          <div class="step-line"></div>
-          <div class="step" id="step-analyze">
-            <div class="step-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            </div>
-            Analyzed
-          </div>
+        </div>
+        <div id="pipeline-complete-badge" class="pipeline-complete-badge hidden">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          All phases complete
         </div>
       </div>
 
+      <!-- ================================================================ -->
+      <!-- 4-Phase Pipeline Progress Tracker                                 -->
+      <!-- ================================================================ -->
+      <div id="pipeline-progress" class="pipeline-progress">
+
+        <!-- Phase 1: Upload -->
+        <div class="pipeline-phase pending" id="phase-upload">
+          <div class="phase-node-wrap">
+            <div class="phase-ring-outer"></div>
+            <div class="phase-node">
+              <!-- Default icon -->
+              <svg class="phase-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <!-- Done check -->
+              <svg class="phase-check" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <!-- Error X -->
+              <svg class="phase-err" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+          </div>
+          <div class="phase-info">
+            <span class="phase-name">Upload</span>
+            <span class="phase-sub" id="sub-upload">File prepared</span>
+          </div>
+          <div class="phase-timing" id="time-upload"></div>
+        </div>
+
+        <!-- Connector 1 → 2 -->
+        <div class="pipeline-conn" id="conn-12"><div class="pipeline-conn-fill"></div></div>
+
+        <!-- Phase 2: Preprocess -->
+        <div class="pipeline-phase pending" id="phase-preprocess">
+          <div class="phase-node-wrap">
+            <div class="phase-ring-outer"></div>
+            <div class="phase-node">
+              <svg class="phase-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="2"/>
+                <rect x="9" y="9" width="6" height="6"/>
+                <line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/>
+                <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
+                <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
+                <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
+              </svg>
+              <svg class="phase-check" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <svg class="phase-err" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+          </div>
+          <div class="phase-info">
+            <span class="phase-name">Preprocess</span>
+            <span class="phase-sub" id="sub-preprocess">OCR · CV · Tiling</span>
+          </div>
+          <div class="phase-timing" id="time-preprocess"></div>
+        </div>
+
+        <!-- Connector 2 → 3 -->
+        <div class="pipeline-conn" id="conn-23"><div class="pipeline-conn-fill"></div></div>
+
+        <!-- Phase 3: AI Analysis -->
+        <div class="pipeline-phase pending" id="phase-analyze">
+          <div class="phase-node-wrap">
+            <div class="phase-ring-outer"></div>
+            <div class="phase-node">
+              <svg class="phase-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              </svg>
+              <svg class="phase-check" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <svg class="phase-err" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+          </div>
+          <div class="phase-info">
+            <span class="phase-name">AI Analysis</span>
+            <span class="phase-sub" id="sub-analyze">ADK · Gemini · 5 Tools</span>
+          </div>
+          <div class="phase-timing" id="time-analyze"></div>
+        </div>
+
+        <!-- Connector 3 → 4 -->
+        <div class="pipeline-conn" id="conn-34"><div class="pipeline-conn-fill"></div></div>
+
+        <!-- Phase 4: Results -->
+        <div class="pipeline-phase pending" id="phase-results">
+          <div class="phase-node-wrap">
+            <div class="phase-ring-outer"></div>
+            <div class="phase-node">
+              <svg class="phase-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              <svg class="phase-check" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <svg class="phase-err" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+          </div>
+          <div class="phase-info">
+            <span class="phase-name">Results</span>
+            <span class="phase-sub" id="sub-results">Ready to display</span>
+          </div>
+          <div class="phase-timing" id="time-results"></div>
+        </div>
+
+      </div>
+      <!-- /pipeline-progress -->
+
+      <!-- Separator between pipeline and results content -->
+      <div class="results-divider hidden" id="results-divider"></div>
+
+      <!-- Result meta badges + visualization link -->
       <div class="result-meta" id="result-meta">
-        <!-- populated dynamically via JS (e.g. badges, visualization link) -->
+        <!-- populated dynamically via JS (badges, visualization link) -->
       </div>
 
+      <!-- Agent tool call activity timeline -->
       <div id="tool-calls" class="tool-timeline hidden">
-        <!-- populated dynamically via JS — agent tool call activity timeline -->
+        <!-- populated dynamically via JS -->
       </div>
 
+      <!-- Analysis response text (markdown) -->
       <div id="result-text" class="result-content markdown-body glass-panel-inner">
         <!-- populated dynamically via JS -->
       </div>
+
     </div> <!-- /results-card -->
 
   </main>
